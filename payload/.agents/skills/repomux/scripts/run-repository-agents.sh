@@ -6,10 +6,12 @@ usage() {
   echo "Usage: run-repository-agents.sh [--model <model>] [--reasoning-effort <effort>] [--profile <profile>] [--max-parallel <count>] [--max-attempts <count>] [--resume <run-id>] [--retry-blocked <repository-key>]... [<run-id>] <assignments-file>" >&2
 }
 
-model="gpt-5.6-terra"
+model=""
+model_explicit=false
 reasoning_effort=""
 profile=""
-max_parallel=2
+max_parallel=""
+max_parallel_explicit=false
 max_attempts=""
 max_attempts_explicit=false
 resume=false
@@ -25,6 +27,7 @@ while [[ "$#" -gt 0 ]]; do
       fi
 
       model="$2"
+      model_explicit=true
       shift 2
       ;;
     --reasoning-effort)
@@ -52,6 +55,7 @@ while [[ "$#" -gt 0 ]]; do
       fi
 
       max_parallel="$2"
+      max_parallel_explicit=true
       shift 2
       ;;
     --max-attempts)
@@ -137,11 +141,6 @@ case "$reasoning_effort" in
     ;;
 esac
 
-if [[ ! "$max_parallel" =~ ^[1-9][0-9]*$ ]]; then
-  echo "Maximum parallel repository agents must be a positive integer: $max_parallel" >&2
-  exit 2
-fi
-
 for required_command in codex git jq; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     echo "Required command is not installed: $required_command" >&2
@@ -164,23 +163,77 @@ result_directory=""
 run_id_reservation=""
 run_manifest_stage=""
 
+if [[ -n "${REPOMUX_CONFIG_HOME:-}" ]]; then
+  repomux_config_directory="$REPOMUX_CONFIG_HOME"
+elif [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
+  repomux_config_directory="$XDG_CONFIG_HOME/repomux"
+elif [[ -n "${HOME:-}" ]]; then
+  repomux_config_directory="$HOME/.config/repomux"
+else
+  repomux_config_directory=""
+fi
+
+projects_registry=""
+
+if [[ -n "$repomux_config_directory" ]]; then
+  projects_registry="$repomux_config_directory/projects.json"
+fi
+
+if [[ "$model_explicit" != true ]]; then
+  if [[ -n "${REPOMUX_MODEL:-}" ]]; then
+    model="$REPOMUX_MODEL"
+  else
+    model="gpt-5.6-terra"
+
+    if [[ -n "$projects_registry" && -f "$projects_registry" ]]; then
+      model="$(jq -er \
+        --arg coordinate "$coordinate_root" \
+        '
+          (.defaults.model // "gpt-5.6-terra") as $default |
+          [.projects[] | select(.coordinate == $coordinate)] |
+          if length == 1 then (.[0].model // $default) else $default end
+        ' \
+        "$projects_registry")"
+    fi
+  fi
+fi
+
+if [[ -z "$model" || "$model" =~ [[:space:]] ]]; then
+  echo "Model must be a nonempty value without whitespace: $model" >&2
+  exit 2
+fi
+
+if [[ "$max_parallel_explicit" != true ]]; then
+  if [[ -n "${REPOMUX_MAX_PARALLEL:-}" ]]; then
+    max_parallel="$REPOMUX_MAX_PARALLEL"
+  else
+    max_parallel="2"
+
+    if [[ -n "$projects_registry" && -f "$projects_registry" ]]; then
+      max_parallel="$(jq -er \
+        --arg coordinate "$coordinate_root" \
+        '
+          (.defaults.maxParallel // 2) as $default |
+          [.projects[] | select(.coordinate == $coordinate)] |
+          if length == 1 then (.[0].maxParallel // $default) else $default end
+        ' \
+        "$projects_registry")"
+    fi
+  fi
+fi
+
+if [[ ! "$max_parallel" =~ ^[1-9][0-9]*$ || "${#max_parallel}" -gt 9 ]]; then
+  echo "Maximum parallel repository agents must be a positive integer no greater than 999999999: $max_parallel" >&2
+  exit 2
+fi
+
 if [[ "$max_attempts_explicit" != true ]]; then
   if [[ -n "${REPOMUX_MAX_ATTEMPTS:-}" ]]; then
     max_attempts="$REPOMUX_MAX_ATTEMPTS"
   else
-    if [[ -n "${REPOMUX_CONFIG_HOME:-}" ]]; then
-      repomux_config_directory="$REPOMUX_CONFIG_HOME"
-    elif [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
-      repomux_config_directory="$XDG_CONFIG_HOME/repomux"
-    elif [[ -n "${HOME:-}" ]]; then
-      repomux_config_directory="$HOME/.config/repomux"
-    else
-      repomux_config_directory=""
-    fi
-
     max_attempts="3"
 
-    if [[ -n "$repomux_config_directory" && -f "$repomux_config_directory/projects.json" ]]; then
+    if [[ -n "$projects_registry" && -f "$projects_registry" ]]; then
       configured_max_attempts="$(jq -r \
         --arg coordinate "$coordinate_root" \
         '
@@ -188,7 +241,7 @@ if [[ "$max_attempts_explicit" != true ]]; then
           [.projects[] | select(.coordinate == $coordinate)] |
           if length == 1 then (.[0].maxAttempts // $default) else 3 end
         ' \
-        "$repomux_config_directory/projects.json")"
+        "$projects_registry")"
       max_attempts="$configured_max_attempts"
     fi
   fi

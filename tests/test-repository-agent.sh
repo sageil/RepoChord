@@ -460,6 +460,55 @@ HOME="$test_home" \
   max-attempts 3 \
   >/dev/null
 
+HOME="$test_home" \
+"$command_bin/repomux" config set \
+  --project repository-agent-test \
+  model stored-model \
+  >/dev/null
+
+HOME="$test_home" \
+"$command_bin/repomux" config set \
+  --project repository-agent-test \
+  max-parallel 1 \
+  >/dev/null
+
+PATH="$fake_bin:$PATH" \
+FAKE_CODEX_MODE=completed \
+"$runner" \
+  PROJECT-123-stored-settings \
+  "$web_assignment" \
+  >/dev/null
+
+jq -e '
+  .status == "completed" and
+  .execution.model == "stored-model"
+' "$coordinate_repository/.repomux/results/PROJECT-123-stored-settings/web.json" >/dev/null
+
+if PATH="$fake_bin:$PATH" \
+  REPOMUX_MAX_PARALLEL=0 \
+  "$runner" \
+    PROJECT-123-invalid-environment-parallel \
+    "$web_assignment" \
+    >/dev/null 2>&1
+then
+  echo "Runner unexpectedly accepted an invalid environment concurrency limit." >&2
+  exit 1
+fi
+
+test ! -e "$coordinate_repository/.repomux/results/PROJECT-123-invalid-environment-parallel"
+
+HOME="$test_home" \
+"$command_bin/repomux" config set \
+  --project repository-agent-test \
+  model gpt-5.6-terra \
+  >/dev/null
+
+HOME="$test_home" \
+"$command_bin/repomux" config set \
+  --project repository-agent-test \
+  max-parallel 2 \
+  >/dev/null
+
 if PATH="$fake_bin:$PATH" FAKE_CODEX_MODE=guarded_git_operations "$runner" \
   --max-attempts 1 \
   PROJECT-123-guarded-git \

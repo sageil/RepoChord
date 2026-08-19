@@ -41,9 +41,12 @@ test_home="$temporary_root/home"
 command_bin="$temporary_root/commands"
 conflict_bin="$temporary_root/conflict-commands"
 link_bin="$temporary_root/link-commands"
+invalid_registry_bin="$temporary_root/invalid-registry-commands"
+invalid_registry_home="$temporary_root/invalid-registry-home"
 fake_bin="$temporary_root/fake-bin"
 launcher_capture="$temporary_root/launcher-arguments.txt"
 attempts_capture="$temporary_root/max-attempts.txt"
+settings_capture="$temporary_root/repository-agent-settings.txt"
 
 initialize_product_repository "$api_repository" api
 initialize_product_repository "$web_repository" web
@@ -71,6 +74,16 @@ test ! -L "$repomux_command"
 test -d "$installed_data/skill"
 test ! -L "$installed_data/skill"
 
+jq -e '
+  .version == 1 and
+  .defaults == {
+    maxAttempts: 3,
+    model: "gpt-5.6-terra",
+    maxParallel: 2
+  } and
+  .projects == []
+' "$projects_registry" >/dev/null
+
 env \
   -u HOME \
   -u XDG_CONFIG_HOME \
@@ -91,6 +104,53 @@ HOME="$test_home" \
 "$repository_directory/install.sh" \
   --bin-dir "$command_bin" \
   >/dev/null
+
+HOME="$test_home" \
+"$repository_directory/install.sh" \
+  --bin-dir "$command_bin" \
+  --default-model openrouter/example/model \
+  --default-max-parallel 4 \
+  >/dev/null
+
+jq -e '
+  .defaults.model == "openrouter/example/model" and
+  .defaults.maxParallel == 4 and
+  .projects == []
+' "$projects_registry" >/dev/null
+
+HOME="$test_home" \
+"$repository_directory/install.sh" \
+  --bin-dir "$command_bin" \
+  >/dev/null
+
+jq -e '
+  .defaults.model == "openrouter/example/model" and
+  .defaults.maxParallel == 4
+' "$projects_registry" >/dev/null
+
+mkdir -p "$invalid_registry_home/.config/repomux"
+jq -n '{
+  version: 1,
+  defaults: {
+    maxAttempts: 3,
+    model: "gpt-5.6-terra",
+    maxParallel: 0
+  },
+  projects: []
+}' > "$invalid_registry_home/.config/repomux/projects.json"
+
+if HOME="$invalid_registry_home" \
+  XDG_CONFIG_HOME="$invalid_registry_home/.config" \
+  "$repository_directory/install.sh" \
+    --bin-dir "$invalid_registry_bin" \
+    >/dev/null 2>&1
+then
+  echo "Installer unexpectedly accepted an invalid existing project registry." >&2
+  exit 1
+fi
+
+test ! -e "$invalid_registry_bin/repomux"
+test "$(jq -r '.defaults.maxParallel' "$invalid_registry_home/.config/repomux/projects.json")" = "0"
 
 printf 'preserve this command\n' > "$conflict_bin/repomux"
 
@@ -162,6 +222,8 @@ HOME="$test_home" "$repomux_command" init \
   -p acme-commerce \
   -c "$coordinate_repository" \
   --create-coordinate \
+  --model project-model \
+  --max-parallel 3 \
   -r "api=$api_repository" \
   -r "web=$web_repository"
 
@@ -184,8 +246,17 @@ test ! -e "$coordinate_repository/start-coordinator.sh"
 jq -e \
   --arg coordinate "$coordinate_repository" \
   '.version == 1 and
-   .defaults == {maxAttempts: 3} and
-   .projects == [{name: "acme-commerce", coordinate: $coordinate}]' \
+   .defaults == {
+     maxAttempts: 3,
+     model: "openrouter/example/model",
+     maxParallel: 4
+   } and
+   .projects == [{
+     name: "acme-commerce",
+     coordinate: $coordinate,
+     model: "project-model",
+     maxParallel: 3
+   }]' \
   "$projects_registry" \
   >/dev/null
 
@@ -197,6 +268,32 @@ default_max_attempts="$(
 )"
 
 test "$default_max_attempts" = "3"
+
+test "$(
+  HOME="$test_home" \
+  "$repomux_command" config get \
+    --project acme-commerce \
+    model
+)" = "project-model"
+
+test "$(
+  HOME="$test_home" \
+  "$repomux_command" config get \
+    --project acme-commerce \
+    max-parallel
+)" = "3"
+
+HOME="$test_home" \
+"$repomux_command" config set \
+  --project acme-commerce \
+  model project-model-2 \
+  >/dev/null
+
+HOME="$test_home" \
+"$repomux_command" config set \
+  --project acme-commerce \
+  max-parallel 5 \
+  >/dev/null
 
 HOME="$test_home" \
 "$repomux_command" config set \
@@ -237,7 +334,11 @@ HOME="$test_home" \
   >/dev/null
 
 jq -e \
-  '.projects[] | select(.name == "acme-commerce") | .maxAttempts == 5' \
+  '.projects[] |
+   select(.name == "acme-commerce") |
+   .maxAttempts == 5 and
+   .model == "project-model-2" and
+   .maxParallel == 5' \
   "$projects_registry" \
   >/dev/null
 
@@ -250,6 +351,24 @@ then
   exit 1
 fi
 
+if HOME="$test_home" "$repomux_command" config set \
+  --project acme-commerce \
+  max-parallel 0 \
+  >/dev/null 2>&1
+then
+  echo "RepoMux unexpectedly accepted an invalid concurrency limit." >&2
+  exit 1
+fi
+
+if HOME="$test_home" "$repomux_command" config set \
+  --project acme-commerce \
+  model "invalid model" \
+  >/dev/null 2>&1
+then
+  echo "RepoMux unexpectedly accepted a model containing whitespace." >&2
+  exit 1
+fi
+
 mkdir -p "$fake_bin"
 cp "$test_directory/fixtures/fake-codex-start.sh" "$fake_bin/codex"
 chmod +x "$fake_bin/codex"
@@ -258,6 +377,7 @@ HOME="$test_home" \
 PATH="$fake_bin:$PATH" \
 FAKE_CODEX_START_CAPTURE="$launcher_capture" \
 FAKE_REPOMUX_ATTEMPTS_CAPTURE="$attempts_capture" \
+FAKE_REPOMUX_SETTINGS_CAPTURE="$settings_capture" \
 "$repomux_command" \
   -- \
   --profile test-profile
@@ -277,22 +397,43 @@ diff -u \
   "$launcher_capture"
 
 grep -Fqx "5" "$attempts_capture"
+grep -Fqx "model=project-model-2" "$settings_capture"
+grep -Fqx "max_parallel=5" "$settings_capture"
 
 HOME="$test_home" \
 PATH="$fake_bin:$PATH" \
 FAKE_CODEX_START_CAPTURE="$launcher_capture" \
 FAKE_REPOMUX_ATTEMPTS_CAPTURE="$attempts_capture" \
+FAKE_REPOMUX_SETTINGS_CAPTURE="$settings_capture" \
 "$repomux_command" \
   --project acme-commerce \
+  --model session-model \
+  --max-parallel 7 \
   --max-attempts 7
 
 grep -Fqx "7" "$attempts_capture"
+grep -Fqx "model=session-model" "$settings_capture"
+grep -Fqx "max_parallel=7" "$settings_capture"
 
 test "$(
   HOME="$test_home" \
   "$repomux_command" config get \
     --project acme-commerce \
     max-attempts
+)" = "5"
+
+test "$(
+  HOME="$test_home" \
+  "$repomux_command" config get \
+    --project acme-commerce \
+    model
+)" = "project-model-2"
+
+test "$(
+  HOME="$test_home" \
+  "$repomux_command" config get \
+    --project acme-commerce \
+    max-parallel
 )" = "5"
 
 (

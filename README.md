@@ -48,7 +48,20 @@ The default installation creates:
 ```text
 ~/.local/bin/repomux
 ~/.local/share/repomux/skill/
+~/.config/repomux/projects.json
 ```
+
+It sets `gpt-5.6-terra` as the default repository-agent model and allows two repository agents to run at the same time.
+
+Set different installation defaults when needed:
+
+```bash
+./install.sh \
+  --default-model openrouter/anthropic/claude-sonnet-4.5 \
+  --default-max-parallel 4
+```
+
+These values become the defaults for projects that do not have their own values.
 
 If `~/.local/bin` is not in `PATH`, it prints the command you must add.
 
@@ -71,9 +84,14 @@ cd /work/acme-commerce-coordinate
 repomux init \
   -p acme-commerce \
   -c "$PWD" \
+  --model gpt-5.6-terra \
+  --max-parallel 2 \
   -r "orders-api=$PWD/../acme-orders-api" \
   -r "storefront=$PWD/../acme-storefront"
 ```
+
+The `--model` and `--max-parallel` options are project settings.
+Omit either option to use its installation default.
 
 The short options are:
 
@@ -143,60 +161,8 @@ RepoMux creates one from the feature title, such as `customer-order-cancellation
 It also creates a unique run ID, such as `customer-order-cancellation-a31f7c-run-k82mqp`.
 The six-character suffixes will differ for each generated ID.
 
-## Workflow Screen Captures
-
-These captures show one complete feature workflow in timestamp order.
-
-### 1. Submit the feature request
-
-Start RepoMux for the registered project and describe the cross-repository feature to the coordinator.
-
-![Submit a downloadable order receipt feature to the RepoMux coordinator](assets/workflow-screen-captures/workflow-2026-08-18-213931.png)
-
-### 2. Inspect the repositories and define the contract
-
-The coordinator verifies both repositories, inspects the existing API and web paths, and defines the shared receipt contract.
-
-![RepoMux inspecting the API and web repositories and defining the shared contract](assets/workflow-screen-captures/workflow-2026-08-18-214037.png)
-
-### 3. Prepare the repository tasks
-
-The coordinator writes bounded API and web tasks with acceptance criteria, test commands, and commit messages.
-
-![RepoMux preparing the API and web repository task files](assets/workflow-screen-captures/workflow-2026-08-18-214108.png)
-
-### 4. Approve isolated implementation
-
-RepoMux requests elevated execution for the runner because it must create local Git worktrees and feature commits outside the coordinator sandbox.
-The repository agents then run in parallel inside their isolated worktrees.
-
-![Approval of the RepoMux runner followed by parallel repository-agent execution](assets/workflow-screen-captures/workflow-2026-08-18-214227.png)
-
-### 5. Validate the repository results
-
-After both repository agents finish, the coordinator checks their structured results, worktree branches, commits, clean state, and required tests.
-
-![RepoMux validating completed API and web repository results](assets/workflow-screen-captures/workflow-2026-08-18-214320.png)
-
-### 6. Review the completion report
-
-The completion report shows each repository status, test result, commit, worktree, branch, attempt count, and token usage.
-It also provides the dry-run and integration commands.
-
-![RepoMux completion report for the API and web repositories](assets/workflow-screen-captures/workflow-2026-08-18-214407.png)
-
-### 7. Review the integration preflight
-
-The integration command verifies the feature documents and repository commits, then shows the planned local fast-forwards before it asks for confirmation.
-
-![RepoMux integration preflight showing documents, commits, tests, and change summaries](assets/workflow-screen-captures/workflow-2026-08-18-214437.png)
-
-### 8. Confirm local integration
-
-After confirmation, RepoMux commits the feature documents and fast-forwards the product repository branches.
-It preserves the feature worktrees and does not push changes.
-
-![Completed RepoMux integration with preserved worktrees and no pushed changes](assets/workflow-screen-captures/workflow-2026-08-18-214445.png)
+The coordinator presents the complete contract and waits for your approval before it creates or edits the feature files.
+This contract approval is separate from the later approval required to start repository agents.
 
 ## What RepoMux creates for a feature
 
@@ -323,36 +289,58 @@ repomux list
 repomux validate --project acme-commerce
 ```
 
-## Configure attempts
+## Configure repository agents
 
 RepoMux allows three attempts per repository by default.
 
-Set the value for a project:
+The installation also sets the default repository-agent model and maximum concurrency.
+
+Set project values during initialization:
 
 ```bash
-repomux config set \
+repomux init \
   --project acme-commerce \
-  max-attempts 5
+  --coordinate /work/acme-commerce-coordinate \
+  --model openrouter/anthropic/claude-sonnet-4.5 \
+  --max-parallel 4 \
+  --repository orders-api=/work/acme-orders-api \
+  --repository storefront=/work/acme-storefront
 ```
 
-Read the effective value:
+Re-running `repomux init` without `--model` or `--max-parallel` preserves existing project values.
+
+Change project values later:
 
 ```bash
-repomux config get \
-  --project acme-commerce \
-  max-attempts
+repomux config set --project acme-commerce model gpt-5.6-terra
+repomux config set --project acme-commerce max-parallel 4
+repomux config set --project acme-commerce max-attempts 5
 ```
 
-Override it for one coordinator session without changing the stored value:
+Read the effective project values:
+
+```bash
+repomux config get --project acme-commerce model
+repomux config get --project acme-commerce max-parallel
+repomux config get --project acme-commerce max-attempts
+```
+
+Override the project values for one coordinator session:
 
 ```bash
 repomux \
   --project acme-commerce \
+  --model gpt-5.6-terra \
+  --max-parallel 2 \
   --max-attempts 5
 ```
 
-The session override takes precedence over the project value.
-The project value takes precedence over the default in `~/.config/repomux/projects.json`.
+For each setting, a session override takes precedence over the project value.
+The project value takes precedence over the installation default in `~/.config/repomux/projects.json`.
+The built-in fallbacks are `gpt-5.6-terra`, two parallel repository agents, and three attempts.
+
+Options before `--` configure repository agents.
+Codex coordinator options go after `--`.
 
 ## Resume an incomplete run
 
@@ -433,20 +421,20 @@ Start repository agents and generate the run ID:
 
 ```bash
 bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/run-repository-agents.sh \
-  --model gpt-5.6-terra \
   --reasoning-effort medium \
-  --max-parallel 2 \
-  --max-attempts 5 \
   /work/acme-commerce-coordinate/tasks/customer-order-cancellation-a31f7c/assignments.txt
 ```
 
+The script reads the project model, concurrency, and attempt settings from `~/.config/repomux/projects.json`.
+Use `--model`, `--max-parallel`, or `--max-attempts` on this command only for a direct run override.
+
 Pass an explicit run ID before the assignments file only when another system requires that exact ID.
 
-The repository-agent defaults are:
+The built-in repository-agent fallbacks are:
 
 - Model: `gpt-5.6-terra`.
 - Maximum parallel repository agents: `2`.
-- Maximum attempts: the session or stored project value, otherwise `3`.
+- Maximum attempts: `3`.
 - Reasoning effort: the selected model or profile default.
 
 Supported reasoning effort values are `minimal`, `low`, `medium`, `high`, and `xhigh`.
@@ -460,6 +448,63 @@ The installed command is in `~/.local/bin`, the shared skill is in `~/.local/sha
 `REPOMUX_DATA_HOME` and `REPOMUX_CONFIG_HOME` provide explicit RepoMux data and configuration directory overrides.
 
 The installer is safe to repeat when the installed command and skill match the package.
+Without default-setting arguments, it preserves existing installation defaults.
+An explicit `--default-model` or `--default-max-parallel` updates only that global default and preserves registered projects and project overrides.
 It stops when an installed command or skill differs because RepoMux has no destructive upgrade mode.
 Project initialization also stops instead of overwriting a changed project skill or repository registry.
 Review and reconcile local changes before replacing an installation or initialized project files.
+
+## Workflow Screen Captures
+
+These captures show one complete feature workflow in timestamp order.
+
+### 1. Submit the feature request
+
+Start RepoMux for the registered project and describe the cross-repository feature to the coordinator.
+
+![Submit a downloadable order receipt feature to the RepoMux coordinator](assets/workflow-screen-captures/workflow-2026-08-18-213931.png)
+
+### 2. Inspect the repositories and define the contract
+
+The coordinator verifies both repositories, inspects the existing API and web paths, and defines the shared receipt contract.
+
+![RepoMux inspecting the API and web repositories and defining the shared contract](assets/workflow-screen-captures/workflow-2026-08-18-214037.png)
+
+### 3. Prepare the repository tasks
+
+The coordinator writes bounded API and web tasks with acceptance criteria, test commands, and commit messages.
+
+![RepoMux preparing the API and web repository task files](assets/workflow-screen-captures/workflow-2026-08-18-214108.png)
+
+### 4. Approve isolated implementation
+
+RepoMux requests elevated execution for the runner because it must create local Git worktrees and feature commits outside the coordinator sandbox.
+The repository agents then run in parallel inside their isolated worktrees.
+
+![Approval of the RepoMux runner followed by parallel repository-agent execution](assets/workflow-screen-captures/workflow-2026-08-18-214227.png)
+
+### 5. Validate the repository results
+
+After both repository agents finish, the coordinator checks their structured results, worktree branches, commits, clean state, and required tests.
+
+![RepoMux validating completed API and web repository results](assets/workflow-screen-captures/workflow-2026-08-18-214320.png)
+
+### 6. Review the completion report
+
+The completion report shows each repository status, test result, commit, worktree, branch, attempt count, and token usage.
+It also provides the dry-run and integration commands.
+
+![RepoMux completion report for the API and web repositories](assets/workflow-screen-captures/workflow-2026-08-18-214407.png)
+
+### 7. Review the integration preflight
+
+The integration command verifies the feature documents and repository commits, then shows the planned local fast-forwards before it asks for confirmation.
+
+![RepoMux integration preflight showing documents, commits, tests, and change summaries](assets/workflow-screen-captures/workflow-2026-08-18-214437.png)
+
+### 8. Confirm local integration
+
+After confirmation, RepoMux commits the feature documents and fast-forwards the product repository branches.
+It preserves the feature worktrees and does not push changes.
+
+![Completed RepoMux integration with preserved worktrees and no pushed changes](assets/workflow-screen-captures/workflow-2026-08-18-214445.png)

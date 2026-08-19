@@ -15,6 +15,11 @@ Do not edit product repository source files directly.
 2. Inspect enough of each affected repository to verify its execution path and focused test commands.
 3. Define shared contracts, state transitions, invariants, authorization, failure behavior, restart behavior, acceptance criteria, and required tests before implementation.
 4. Stop and request a decision when a material contract or requirement is unknown.
+5. Present the complete contract to the user and ask the user to approve it.
+6. Stop and wait for explicit user approval.
+7. Do not run `scaffold-feature.sh`, create or edit feature files, or start repository agents until the user approves the contract.
+
+Contract approval does not replace the later approval required to start repository agents.
 
 ## Resolve the feature ID
 
@@ -58,9 +63,7 @@ Run without an explicit run ID to generate one from the feature ID:
 
 ```bash
 bash .agents/skills/repomux/scripts/run-repository-agents.sh \
-  --model gpt-5.6-terra \
   --reasoning-effort medium \
-  --max-parallel 2 \
   <absolute-assignments-file>
 ```
 
@@ -77,7 +80,11 @@ Omit `--reasoning-effort` to use the selected model or profile default.
 
 Use `--profile <profile>` only when repository agents require a named Codex configuration profile.
 
-The default model is `gpt-5.6-terra` and the default maximum concurrency is two repository agents.
+The repository-agent launcher reads the effective model and maximum concurrency from the RepoMux session or stored project configuration.
+
+An explicit `--model` or `--max-parallel` value on `run-repository-agents.sh` takes precedence over the session and stored values.
+
+When no configured value exists, the model fallback is `gpt-5.6-terra` and the maximum concurrency fallback is two repository agents.
 
 The repository-agent script reads the stored project maximum when `REPOMUX_MAX_ATTEMPTS` is absent.
 

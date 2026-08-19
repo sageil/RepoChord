@@ -3,10 +3,58 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: install.sh [--bin-dir <absolute-directory>]" >&2
+  echo "Usage: install.sh [--bin-dir <absolute-directory>] [--default-model <model>] [--default-max-parallel <count>]" >&2
+}
+
+validate_projects_registry_file() {
+  local registry_path="$1"
+
+  jq -e '
+    .version == 1 and
+    ((.defaults // {}) | type == "object") and
+    ((.defaults.maxAttempts // 3) | type == "number") and
+    ((.defaults.maxAttempts // 3) | floor == .) and
+    ((.defaults.maxAttempts // 3) >= 1) and
+    ((.defaults.maxAttempts // 3) <= 999999999) and
+    ((.defaults.model // "gpt-5.6-terra") | type == "string") and
+    ((.defaults.model // "gpt-5.6-terra") | length > 0) and
+    ((.defaults.model // "gpt-5.6-terra") | test("[[:space:]]") | not) and
+    ((.defaults.maxParallel // 2) | type == "number") and
+    ((.defaults.maxParallel // 2) | floor == .) and
+    ((.defaults.maxParallel // 2) >= 1) and
+    ((.defaults.maxParallel // 2) <= 999999999) and
+    (.projects | type == "array") and
+    ([.projects[].name] | length == (unique | length)) and
+    ([.projects[].coordinate] | length == (unique | length)) and
+    all(.projects[];
+      (.name | type == "string") and
+      (.name | test("^[A-Za-z0-9._-]+$")) and
+      (.coordinate | type == "string") and
+      (.coordinate | startswith("/")) and
+      (.coordinate | test("[\\t\\r\\n]") | not) and
+      ((has("maxAttempts") | not) or
+        ((.maxAttempts | type == "number") and
+         (.maxAttempts | floor == .) and
+         (.maxAttempts >= 1) and
+         (.maxAttempts <= 999999999))) and
+      ((has("model") | not) or
+        ((.model | type == "string") and
+         (.model | length > 0) and
+         (.model | test("[[:space:]]") | not))) and
+      ((has("maxParallel") | not) or
+        ((.maxParallel | type == "number") and
+         (.maxParallel | floor == .) and
+         (.maxParallel >= 1) and
+         (.maxParallel <= 999999999)))
+    )
+  ' "$registry_path" >/dev/null
 }
 
 bin_directory=""
+default_model="gpt-5.6-terra"
+default_model_explicit=false
+default_max_parallel="2"
+default_max_parallel_explicit=false
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -17,6 +65,26 @@ while [[ "$#" -gt 0 ]]; do
       fi
 
       bin_directory="$2"
+      shift 2
+      ;;
+    --default-model)
+      if [[ "$#" -lt 2 || -z "$2" ]]; then
+        usage
+        exit 2
+      fi
+
+      default_model="$2"
+      default_model_explicit=true
+      shift 2
+      ;;
+    --default-max-parallel)
+      if [[ "$#" -lt 2 || -z "$2" ]]; then
+        usage
+        exit 2
+      fi
+
+      default_max_parallel="$2"
+      default_max_parallel_explicit=true
       shift 2
       ;;
     -h|--help)
@@ -30,6 +98,16 @@ while [[ "$#" -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$default_model" =~ [[:space:]] ]]; then
+  echo "Default model must not contain whitespace: $default_model" >&2
+  exit 2
+fi
+
+if [[ ! "$default_max_parallel" =~ ^[1-9][0-9]*$ || "${#default_max_parallel}" -gt 9 ]]; then
+  echo "Default maximum parallel repository agents must be a positive integer no greater than 999999999: $default_max_parallel" >&2
+  exit 2
+fi
 
 if [[ -z "${HOME:-}" && -z "${XDG_DATA_HOME:-}" && -z "${REPOMUX_DATA_HOME:-}" ]]; then
   echo "HOME, XDG_DATA_HOME, and REPOMUX_DATA_HOME are unset." >&2
@@ -62,6 +140,22 @@ fi
 
 if [[ "$data_directory" != /* ]]; then
   echo "RepoMux data directory must be an absolute path: $data_directory" >&2
+  exit 2
+fi
+
+if [[ -n "${REPOMUX_CONFIG_HOME:-}" ]]; then
+  config_directory="$REPOMUX_CONFIG_HOME"
+elif [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
+  config_directory="$XDG_CONFIG_HOME/repomux"
+elif [[ -n "${HOME:-}" ]]; then
+  config_directory="$HOME/.config/repomux"
+else
+  echo "HOME, XDG_CONFIG_HOME, and REPOMUX_CONFIG_HOME are unset." >&2
+  exit 2
+fi
+
+if [[ "$config_directory" != /* ]]; then
+  echo "RepoMux configuration directory must be an absolute path: $config_directory" >&2
   exit 2
 fi
 
@@ -109,8 +203,19 @@ if [[ -e "$data_directory" && ! -d "$data_directory" ]]; then
   exit 2
 fi
 
+if [[ -L "$config_directory" ]]; then
+  echo "Refusing to use a symbolic link as the RepoMux configuration directory: $config_directory" >&2
+  exit 1
+fi
+
+if [[ -e "$config_directory" && ! -d "$config_directory" ]]; then
+  echo "RepoMux configuration path is not a directory: $config_directory" >&2
+  exit 2
+fi
+
 command_path="$bin_directory/repomux"
 installed_skill="$data_directory/skill"
+projects_registry="$config_directory/projects.json"
 
 if [[ -L "$command_path" ]]; then
   echo "Refusing to use a symbolic link as the RepoMux command: $command_path" >&2
@@ -119,6 +224,21 @@ fi
 
 if [[ -L "$installed_skill" ]]; then
   echo "Refusing to use a symbolic link as the RepoMux skill: $installed_skill" >&2
+  exit 1
+fi
+
+if [[ -L "$projects_registry" ]]; then
+  echo "Refusing to use a symbolic link as the RepoMux project registry: $projects_registry" >&2
+  exit 1
+fi
+
+if [[ -e "$projects_registry" && ! -f "$projects_registry" ]]; then
+  echo "RepoMux project registry is not a regular file: $projects_registry" >&2
+  exit 2
+fi
+
+if [[ -f "$projects_registry" ]] && ! validate_projects_registry_file "$projects_registry"; then
+  echo "RepoMux project registry is invalid: $projects_registry" >&2
   exit 1
 fi
 
@@ -134,6 +254,7 @@ fi
 
 command_stage=""
 skill_stage=""
+projects_stage=""
 
 cleanup() {
   if [[ -n "$command_stage" ]]; then
@@ -143,15 +264,65 @@ cleanup() {
   if [[ -n "$skill_stage" ]]; then
     rm -rf -- "$skill_stage"
   fi
+
+  if [[ -n "$projects_stage" ]]; then
+    rm -f -- "$projects_stage"
+  fi
 }
 
 trap cleanup EXIT
 
-mkdir -p "$bin_directory" "$data_directory"
+mkdir -p "$bin_directory" "$data_directory" "$config_directory"
 bin_directory="$(cd -- "$bin_directory" && pwd -P)"
 data_directory="$(cd -- "$data_directory" && pwd -P)"
+config_directory="$(cd -- "$config_directory" && pwd -P)"
 command_path="$bin_directory/repomux"
 installed_skill="$data_directory/skill"
+projects_registry="$config_directory/projects.json"
+
+projects_stage="$(mktemp "$config_directory/.projects.XXXXXX")"
+
+if [[ -f "$projects_registry" ]]; then
+  jq \
+    --arg default_model "$default_model" \
+    --arg default_model_explicit "$default_model_explicit" \
+    --arg default_max_parallel "$default_max_parallel" \
+    --arg default_max_parallel_explicit "$default_max_parallel_explicit" \
+    '
+      .defaults //= {} |
+      .defaults.maxAttempts //= 3 |
+      if $default_model_explicit == "true" then
+        .defaults.model = $default_model
+      else
+        .defaults.model //= $default_model
+      end |
+      if $default_max_parallel_explicit == "true" then
+        .defaults.maxParallel = ($default_max_parallel | tonumber)
+      else
+        .defaults.maxParallel //= ($default_max_parallel | tonumber)
+      end
+    ' \
+    "$projects_registry" > "$projects_stage"
+else
+  jq -n \
+    --arg default_model "$default_model" \
+    --argjson default_max_parallel "$default_max_parallel" \
+    '{
+      version: 1,
+      defaults: {
+        maxAttempts: 3,
+        model: $default_model,
+        maxParallel: $default_max_parallel
+      },
+      projects: []
+    }' \
+    > "$projects_stage"
+fi
+
+if ! validate_projects_registry_file "$projects_stage"; then
+  echo "Generated RepoMux project registry is invalid: $projects_stage" >&2
+  exit 1
+fi
 
 if [[ ! -e "$installed_skill" ]]; then
   skill_stage="$(mktemp -d "$data_directory/.skill.XXXXXX")"
@@ -174,9 +345,15 @@ fi
 
 chmod +x "$command_path"
 
+mv -- "$projects_stage" "$projects_registry"
+projects_stage=""
+
 echo "RepoMux installed."
 echo "Command: $command_path"
 echo "Data: $data_directory"
+echo "Configuration: $projects_registry"
+echo "Default repository-agent model: $(jq -r '.defaults.model' "$projects_registry")"
+echo "Default maximum parallel repository agents: $(jq -r '.defaults.maxParallel' "$projects_registry")"
 
 case ":${PATH:-}:" in
   *":$bin_directory:"*)

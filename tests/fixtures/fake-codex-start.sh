@@ -22,3 +22,10 @@ printf '%s\n' "$@" > "$FAKE_CODEX_START_CAPTURE"
 if [[ -n "${FAKE_REPOMUX_ATTEMPTS_CAPTURE:-}" ]]; then
   printf '%s\n' "${REPOMUX_MAX_ATTEMPTS:-}" > "$FAKE_REPOMUX_ATTEMPTS_CAPTURE"
 fi
+
+if [[ -n "${FAKE_REPOMUX_SETTINGS_CAPTURE:-}" ]]; then
+  printf 'model=%s\nmax_parallel=%s\n' \
+    "${REPOMUX_MODEL:-}" \
+    "${REPOMUX_MAX_PARALLEL:-}" \
+    > "$FAKE_REPOMUX_SETTINGS_CAPTURE"
+fi

@@ -5,10 +5,10 @@ set -euo pipefail
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  repomux init -p <name> [-c <path>] [--create-coordinate] -r <key=path>...
-  repomux [start] [-p <name>] [-r <key>]... [--max-attempts <count>] [-- <codex-argument>...]
-  repomux config get [-p <name>] max-attempts
-  repomux config set [-p <name>] max-attempts <count>
+  repomux init -p <name> [-c <path>] [--create-coordinate] [--model <model>] [--max-parallel <count>] -r <key=path>...
+  repomux [start] [-p <name>] [-r <key>]... [--model <model>] [--max-parallel <count>] [--max-attempts <count>] [-- <codex-argument>...]
+  repomux config get [-p <name>] <model|max-parallel|max-attempts>
+  repomux config set [-p <name>] <model|max-parallel|max-attempts> <value>
   repomux list
   repomux validate [-p <name> | -c <path>]
   repomux integrate [-p <name>] --run <run-id> [--dry-run]
@@ -95,6 +95,22 @@ validate_max_attempts() {
   fi
 }
 
+validate_model() {
+  local value="$1"
+
+  if [[ -z "$value" || "$value" =~ [[:space:]] ]]; then
+    fail "Model must be a nonempty value without whitespace: $value" 2
+  fi
+}
+
+validate_max_parallel() {
+  local value="$1"
+
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ || "${#value}" -gt 9 ]]; then
+    fail "Maximum parallel repository agents must be a positive integer no greater than 999999999: $value" 2
+  fi
+}
+
 validate_safe_path_text() {
   local path_value="$1"
   local path_label="$2"
@@ -165,10 +181,18 @@ validate_projects_registry() {
 
   if ! jq -e '
     .version == 1 and
-    ((.defaults // {maxAttempts: 3}) | type == "object") and
+    ((.defaults // {}) | type == "object") and
     ((.defaults.maxAttempts // 3) | type == "number") and
     ((.defaults.maxAttempts // 3) | floor == .) and
     ((.defaults.maxAttempts // 3) >= 1) and
+    ((.defaults.maxAttempts // 3) <= 999999999) and
+    ((.defaults.model // "gpt-5.6-terra") | type == "string") and
+    ((.defaults.model // "gpt-5.6-terra") | length > 0) and
+    ((.defaults.model // "gpt-5.6-terra") | test("[[:space:]]") | not) and
+    ((.defaults.maxParallel // 2) | type == "number") and
+    ((.defaults.maxParallel // 2) | floor == .) and
+    ((.defaults.maxParallel // 2) >= 1) and
+    ((.defaults.maxParallel // 2) <= 999999999) and
     (.projects | type == "array") and
     ([.projects[].name] | length == (unique | length)) and
     ([.projects[].coordinate] | length == (unique | length)) and
@@ -181,7 +205,17 @@ validate_projects_registry() {
       ((has("maxAttempts") | not) or
         ((.maxAttempts | type == "number") and
          (.maxAttempts | floor == .) and
-         (.maxAttempts >= 1)))
+         (.maxAttempts >= 1) and
+         (.maxAttempts <= 999999999))) and
+      ((has("model") | not) or
+        ((.model | type == "string") and
+         (.model | length > 0) and
+         (.model | test("[[:space:]]") | not))) and
+      ((has("maxParallel") | not) or
+        ((.maxParallel | type == "number") and
+         (.maxParallel | floor == .) and
+         (.maxParallel >= 1) and
+         (.maxParallel <= 999999999)))
     )
   ' "$projects_registry" >/dev/null; then
     fail "RepoMux project registry is invalid: $projects_registry"
@@ -387,6 +421,24 @@ resolve_project_max_attempts() {
   ' "$projects_registry"
 }
 
+resolve_project_model() {
+  local project_name="$1"
+
+  jq -r --arg name "$project_name" '
+    (.defaults.model // "gpt-5.6-terra") as $default |
+    ([.projects[] | select(.name == $name)][0].model // $default)
+  ' "$projects_registry"
+}
+
+resolve_project_max_parallel() {
+  local project_name="$1"
+
+  jq -r --arg name "$project_name" '
+    (.defaults.maxParallel // 2) as $default |
+    ([.projects[] | select(.name == $name)][0].maxParallel // $default)
+  ' "$projects_registry"
+}
+
 prepare_coordinate_path() {
   local requested_path="$1"
   local create_coordinate="$2"
@@ -454,6 +506,8 @@ run_init() {
   local project_name=""
   local coordinate_path="$PWD"
   local create_coordinate=false
+  local requested_model=""
+  local requested_max_parallel=""
   local repository_arguments=()
   local repository_keys=()
   local repository_paths=()
@@ -498,6 +552,24 @@ run_init() {
         create_coordinate=true
         shift
         ;;
+      --model)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        requested_model="$2"
+        shift 2
+        ;;
+      --max-parallel)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        requested_max_parallel="$2"
+        shift 2
+        ;;
       -r|--repository)
         if [[ "$#" -lt 2 || -z "$2" ]]; then
           usage
@@ -522,6 +594,15 @@ run_init() {
   fi
 
   validate_project_name "$project_name"
+
+  if [[ -n "$requested_model" ]]; then
+    validate_model "$requested_model"
+  fi
+
+  if [[ -n "$requested_max_parallel" ]]; then
+    validate_max_parallel "$requested_max_parallel"
+  fi
+
   require_commands bash cp diff find git grep jq mktemp mv
   validate_skill_directory "$source_skill"
   prepare_coordinate_path "$coordinate_path" "$create_coordinate"
@@ -664,12 +745,27 @@ run_init() {
     jq \
       --arg name "$project_name" \
       --arg coordinate "$coordinate_root" \
+      --arg model "$requested_model" \
+      --arg max_parallel "$requested_max_parallel" \
       '
-        .defaults //= {maxAttempts: 3} |
+        def apply_overrides:
+          if $model != "" then .model = $model else . end |
+          if $max_parallel != "" then .maxParallel = ($max_parallel | tonumber) else . end;
+
+        .defaults //= {} |
+        .defaults.maxAttempts //= 3 |
+        .defaults.model //= "gpt-5.6-terra" |
+        .defaults.maxParallel //= 2 |
         if any(.projects[]; .name == $name) then
-          .
+          .projects |= map(
+            if .name == $name then
+              apply_overrides
+            else
+              .
+            end
+          )
         else
-          .projects += [{name: $name, coordinate: $coordinate}]
+          .projects += [({name: $name, coordinate: $coordinate} | apply_overrides)]
         end |
         .projects |= sort_by(.name)
       ' \
@@ -678,11 +774,19 @@ run_init() {
     jq -n \
       --arg name "$project_name" \
       --arg coordinate "$coordinate_root" \
+      --arg model "$requested_model" \
+      --arg max_parallel "$requested_max_parallel" \
       '{
         version: 1,
-        defaults: {maxAttempts: 3},
+        defaults: {
+          maxAttempts: 3,
+          model: "gpt-5.6-terra",
+          maxParallel: 2
+        },
         projects: [{name: $name, coordinate: $coordinate}]
-      }' \
+      } |
+      if $model != "" then .projects[0].model = $model else . end |
+      if $max_parallel != "" then .projects[0].maxParallel = ($max_parallel | tonumber) else . end' \
       > "$temporary_projects_registry"
   fi
 
@@ -809,20 +913,46 @@ run_config() {
       ;;
   esac
 
-  if [[ "$setting_name" != "max-attempts" ]]; then
-    fail "Unknown RepoMux setting: $setting_name" 2
-  fi
+  case "$setting_name" in
+    model|max-parallel|max-attempts)
+      ;;
+    *)
+      fail "Unknown RepoMux setting: $setting_name" 2
+      ;;
+  esac
 
   require_commands jq mktemp mv
   resolve_project "$requested_project"
 
   if [[ "$action" == "get" ]]; then
-    resolve_project_max_attempts "$selected_project"
+    case "$setting_name" in
+      model)
+        resolve_project_model "$selected_project"
+        ;;
+      max-parallel)
+        resolve_project_max_parallel "$selected_project"
+        ;;
+      max-attempts)
+        resolve_project_max_attempts "$selected_project"
+        ;;
+    esac
     return
   fi
 
-  validate_max_attempts "$setting_value"
   configured_value="$setting_value"
+
+  case "$setting_name" in
+    model)
+      validate_model "$configured_value"
+      ;;
+    max-parallel)
+      validate_max_parallel "$configured_value"
+      ;;
+    max-attempts)
+      validate_max_attempts "$configured_value"
+      ;;
+  esac
+
   registry_stage="$(mktemp "$repomux_config_directory/.projects.XXXXXX")"
 
   cleanup_config() {
@@ -833,25 +963,34 @@ run_config() {
 
   trap cleanup_config EXIT
 
-  jq \
-    --arg name "$selected_project" \
-    --argjson max_attempts "$configured_value" \
-    '
-      .defaults //= {maxAttempts: 3} |
-      .projects |= map(
-        if .name == $name then
-          . + {maxAttempts: $max_attempts}
-        else
-          .
-        end
-      )
-    ' \
-    "$projects_registry" > "$registry_stage"
+  case "$setting_name" in
+    model)
+      jq \
+        --arg name "$selected_project" \
+        --arg model "$configured_value" \
+        '.projects |= map(if .name == $name then .model = $model else . end)' \
+        "$projects_registry" > "$registry_stage"
+      ;;
+    max-parallel)
+      jq \
+        --arg name "$selected_project" \
+        --argjson max_parallel "$configured_value" \
+        '.projects |= map(if .name == $name then .maxParallel = $max_parallel else . end)' \
+        "$projects_registry" > "$registry_stage"
+      ;;
+    max-attempts)
+      jq \
+        --arg name "$selected_project" \
+        --argjson max_attempts "$configured_value" \
+        '.projects |= map(if .name == $name then .maxAttempts = $max_attempts else . end)' \
+        "$projects_registry" > "$registry_stage"
+      ;;
+  esac
 
   mv -- "$registry_stage" "$projects_registry"
   registry_stage=""
   validate_projects_registry
-  echo "RepoMux maximum attempts for $selected_project: $configured_value"
+  echo "RepoMux $setting_name for $selected_project: $configured_value"
   trap - EXIT
 }
 
@@ -1066,7 +1205,11 @@ run_integrate() {
 
 run_start() {
   local requested_project=""
+  local requested_model=""
+  local requested_max_parallel=""
   local requested_max_attempts=""
+  local effective_model
+  local effective_max_parallel
   local effective_max_attempts
   local repository_keys=()
   local codex_arguments=()
@@ -1107,6 +1250,24 @@ run_start() {
         requested_max_attempts="$2"
         shift 2
         ;;
+      --model)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        requested_model="$2"
+        shift 2
+        ;;
+      --max-parallel)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        requested_max_parallel="$2"
+        shift 2
+        ;;
       --)
         shift
         codex_arguments=("$@")
@@ -1125,6 +1286,22 @@ run_start() {
   require_commands bash codex diff git grep jq
   resolve_project "$requested_project"
   validate_project_files "$selected_coordinate"
+
+  if [[ -n "$requested_model" ]]; then
+    validate_model "$requested_model"
+    effective_model="$requested_model"
+  else
+    effective_model="$(resolve_project_model "$selected_project")"
+    validate_model "$effective_model"
+  fi
+
+  if [[ -n "$requested_max_parallel" ]]; then
+    validate_max_parallel "$requested_max_parallel"
+    effective_max_parallel="$requested_max_parallel"
+  else
+    effective_max_parallel="$(resolve_project_max_parallel "$selected_project")"
+    validate_max_parallel "$effective_max_parallel"
+  fi
 
   if [[ -n "$requested_max_attempts" ]]; then
     validate_max_attempts "$requested_max_attempts"
@@ -1170,6 +1347,8 @@ run_start() {
   done
 
   export REPOMUX_MAX_ATTEMPTS="$effective_max_attempts"
+  export REPOMUX_MODEL="$effective_model"
+  export REPOMUX_MAX_PARALLEL="$effective_max_parallel"
   if [[ "${#codex_arguments[@]}" -gt 0 ]]; then
     exec codex "${launch_arguments[@]}" "${codex_arguments[@]}"
   fi
