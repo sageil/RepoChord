@@ -19,8 +19,6 @@ Do not edit product repository source files directly.
 6. Stop and wait for explicit user approval.
 7. Do not run `scaffold-feature.sh`, create or edit feature files, or start repository agents until the user approves the contract.
 
-Contract approval does not replace the later approval required to start repository agents.
-
 ## Resolve the feature ID
 
 Use a feature ID supplied by the user or an existing requirements file.
