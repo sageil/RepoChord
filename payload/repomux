@@ -5,10 +5,10 @@ set -euo pipefail
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  repomux init -p <name> [-c <path>] [--create-coordinate] [--model <model>] [--coordinator-reasoning-effort <effort>] [--repository-agent-reasoning-effort <effort>] [--max-parallel <count>] -r <key=path>...
-  repomux [start] [-p <name>] [-r <key>]... [--model <model>] [--coordinator-reasoning-effort <effort>] [--repository-agent-reasoning-effort <effort>] [--max-parallel <count>] [--max-attempts <count>] [--allow-dirty-source] [-- <codex-argument>...]
-  repomux config get [-p <name>] <model|coordinator-reasoning-effort|repository-agent-reasoning-effort|max-parallel|max-attempts>
-  repomux config set [-p <name>] <model|coordinator-reasoning-effort|repository-agent-reasoning-effort|max-parallel|max-attempts> <value>
+  repomux init -p <name> [-c <path>] [--create-coordinate] [--model <model>] [--coordinator-reasoning-effort <effort>] [--repository-agent-reasoning-effort <effort>] [--agent-output <mode>] [--max-parallel <count>] -r <key=path>...
+  repomux [start] [-p <name>] [-r <key>]... [--model <model>] [--coordinator-reasoning-effort <effort>] [--repository-agent-reasoning-effort <effort>] [--agent-output <mode>] [--max-parallel <count>] [--max-attempts <count>] [--allow-dirty-source] [-- <codex-argument>...]
+  repomux config get [-p <name>] <model|coordinator-reasoning-effort|repository-agent-reasoning-effort|agent-output|max-parallel|max-attempts>
+  repomux config set [-p <name>] <model|coordinator-reasoning-effort|repository-agent-reasoning-effort|agent-output|max-parallel|max-attempts> <value>
   repomux list [--details]
   repomux upgrade
   repomux validate [-p <name> | -c <path>]
@@ -118,6 +118,18 @@ validate_reasoning_effort() {
   esac
 }
 
+validate_agent_output() {
+  local value="$1"
+
+  case "$value" in
+    progress|quiet)
+      ;;
+    *)
+      fail "Repository-agent output must be progress or quiet: $value" 2
+      ;;
+  esac
+}
+
 validate_max_parallel() {
   local value="$1"
 
@@ -198,6 +210,8 @@ validate_projects_registry() {
   if ! jq -e '
     def valid_reasoning_effort:
       . == "minimal" or . == "low" or . == "medium" or . == "high" or . == "xhigh";
+    def valid_agent_output:
+      . == "progress" or . == "quiet";
 
     .version == 1 and
     ((.defaults // {}) | type == "object") and
@@ -210,6 +224,7 @@ validate_projects_registry() {
     ((.defaults.model // "gpt-5.6-terra") | test("[[:space:]]") | not) and
     ((.defaults.coordinatorReasoningEffort // "medium") | valid_reasoning_effort) and
     ((.defaults.repositoryAgentReasoningEffort // "high") | valid_reasoning_effort) and
+    ((.defaults.agentOutput // "progress") | valid_agent_output) and
     ((.defaults.maxParallel // 2) | type == "number") and
     ((.defaults.maxParallel // 2) | floor == .) and
     ((.defaults.maxParallel // 2) >= 1) and
@@ -236,6 +251,8 @@ validate_projects_registry() {
         (.coordinatorReasoningEffort | valid_reasoning_effort)) and
       ((has("repositoryAgentReasoningEffort") | not) or
         (.repositoryAgentReasoningEffort | valid_reasoning_effort)) and
+      ((has("agentOutput") | not) or
+        (.agentOutput | valid_agent_output)) and
       ((has("maxParallel") | not) or
         ((.maxParallel | type == "number") and
          (.maxParallel | floor == .) and
@@ -634,6 +651,15 @@ resolve_project_repository_agent_reasoning_effort() {
   ' "$projects_registry"
 }
 
+resolve_project_agent_output() {
+  local project_name="$1"
+
+  jq -r --arg name "$project_name" '
+    (.defaults.agentOutput // "progress") as $default |
+    ([.projects[] | select(.name == $name)][0].agentOutput // $default)
+  ' "$projects_registry"
+}
+
 resolve_project_max_parallel() {
   local project_name="$1"
 
@@ -881,15 +907,16 @@ _repomux() {
   local skip_next=false
   local candidates=""
   local commands="start init config list upgrade validate report integrate cleanup completion"
-  local settings="model coordinator-reasoning-effort repository-agent-reasoning-effort max-parallel max-attempts"
+  local settings="model coordinator-reasoning-effort repository-agent-reasoning-effort agent-output max-parallel max-attempts"
   local efforts="minimal low medium high xhigh"
+  local output_modes="progress quiet"
 
   if [[ "$COMP_CWORD" -gt 0 ]]; then
     previous_word="${COMP_WORDS[COMP_CWORD - 1]}"
   fi
 
   if [[ "$COMP_CWORD" -eq 1 ]]; then
-    _repomux_complete_words "$commands -p --project -r --repository --model --coordinator-reasoning-effort --repository-agent-reasoning-effort --max-parallel --max-attempts --allow-dirty-source -h --help" "$current_word"
+    _repomux_complete_words "$commands -p --project -r --repository --model --coordinator-reasoning-effort --repository-agent-reasoning-effort --agent-output --max-parallel --max-attempts --allow-dirty-source -h --help" "$current_word"
     return
   fi
 
@@ -917,6 +944,10 @@ _repomux() {
       ;;
     --coordinator-reasoning-effort|--repository-agent-reasoning-effort)
       _repomux_complete_words "$efforts" "$current_word"
+      return
+      ;;
+    --agent-output)
+      _repomux_complete_words "$output_modes" "$current_word"
       return
       ;;
     -c|--coordinate)
@@ -969,15 +1000,19 @@ _repomux() {
     then
       _repomux_complete_words "$efforts" "$current_word"
     fi
+
+    if [[ "$action" == "set" && "$setting_name" == "agent-output" ]]; then
+      _repomux_complete_words "$output_modes" "$current_word"
+    fi
     return
   fi
 
   case "$command_name" in
     start)
-      candidates="-p --project -r --repository --model --coordinator-reasoning-effort --repository-agent-reasoning-effort --max-parallel --max-attempts --allow-dirty-source -h --help --"
+      candidates="-p --project -r --repository --model --coordinator-reasoning-effort --repository-agent-reasoning-effort --agent-output --max-parallel --max-attempts --allow-dirty-source -h --help --"
       ;;
     init)
-      candidates="-p --project -c --coordinate --create-coordinate --model --coordinator-reasoning-effort --repository-agent-reasoning-effort --max-parallel -r --repository -h --help"
+      candidates="-p --project -c --coordinate --create-coordinate --model --coordinator-reasoning-effort --repository-agent-reasoning-effort --agent-output --max-parallel -r --repository -h --help"
       ;;
     list)
       candidates="--details -h --help"
@@ -1068,17 +1103,19 @@ _repomux() {
   local -a commands
   local -a settings
   local -a efforts
+  local -a output_modes
 
   commands=(start init config list upgrade validate report integrate cleanup completion)
-  settings=(model coordinator-reasoning-effort repository-agent-reasoning-effort max-parallel max-attempts)
+  settings=(model coordinator-reasoning-effort repository-agent-reasoning-effort agent-output max-parallel max-attempts)
   efforts=(minimal low medium high xhigh)
+  output_modes=(progress quiet)
 
   if (( CURRENT > 1 )); then
     previous_word="${words[CURRENT - 1]}"
   fi
 
   if (( CURRENT == 2 )); then
-    candidates=("${commands[@]}" -p --project -r --repository --model --coordinator-reasoning-effort --repository-agent-reasoning-effort --max-parallel --max-attempts --allow-dirty-source -h --help)
+    candidates=("${commands[@]}" -p --project -r --repository --model --coordinator-reasoning-effort --repository-agent-reasoning-effort --agent-output --max-parallel --max-attempts --allow-dirty-source -h --help)
     compadd -- "${candidates[@]}"
     return
   fi
@@ -1106,6 +1143,10 @@ _repomux() {
       ;;
     --coordinator-reasoning-effort|--repository-agent-reasoning-effort)
       compadd -- "${efforts[@]}"
+      return
+      ;;
+    --agent-output)
+      compadd -- "${output_modes[@]}"
       return
       ;;
     -c|--coordinate)
@@ -1159,15 +1200,19 @@ _repomux() {
     then
       compadd -- "${efforts[@]}"
     fi
+
+    if [[ "$action" == "set" && "$setting_name" == "agent-output" ]]; then
+      compadd -- "${output_modes[@]}"
+    fi
     return
   fi
 
   case "$command_name" in
     start)
-      candidates=(-p --project -r --repository --model --coordinator-reasoning-effort --repository-agent-reasoning-effort --max-parallel --max-attempts --allow-dirty-source -h --help --)
+      candidates=(-p --project -r --repository --model --coordinator-reasoning-effort --repository-agent-reasoning-effort --agent-output --max-parallel --max-attempts --allow-dirty-source -h --help --)
       ;;
     init)
-      candidates=(-p --project -c --coordinate --create-coordinate --model --coordinator-reasoning-effort --repository-agent-reasoning-effort --max-parallel -r --repository -h --help)
+      candidates=(-p --project -c --coordinate --create-coordinate --model --coordinator-reasoning-effort --repository-agent-reasoning-effort --agent-output --max-parallel -r --repository -h --help)
       ;;
     list)
       candidates=(--details -h --help)
@@ -1293,6 +1338,7 @@ run_init() {
   local requested_model=""
   local requested_coordinator_reasoning_effort=""
   local requested_repository_agent_reasoning_effort=""
+  local requested_agent_output=""
   local requested_max_parallel=""
   local repository_arguments=()
   local repository_keys=()
@@ -1364,6 +1410,15 @@ run_init() {
         requested_repository_agent_reasoning_effort="$2"
         shift 2
         ;;
+      --agent-output)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        requested_agent_output="$2"
+        shift 2
+        ;;
       --max-parallel)
         if [[ "$#" -lt 2 || -z "$2" ]]; then
           usage
@@ -1408,6 +1463,10 @@ run_init() {
 
   if [[ -n "$requested_repository_agent_reasoning_effort" ]]; then
     validate_reasoning_effort "$requested_repository_agent_reasoning_effort"
+  fi
+
+  if [[ -n "$requested_agent_output" ]]; then
+    validate_agent_output "$requested_agent_output"
   fi
 
   if [[ -n "$requested_max_parallel" ]]; then
@@ -1551,6 +1610,7 @@ run_init() {
       --arg model "$requested_model" \
       --arg coordinator_reasoning_effort "$requested_coordinator_reasoning_effort" \
       --arg repository_agent_reasoning_effort "$requested_repository_agent_reasoning_effort" \
+      --arg agent_output "$requested_agent_output" \
       --arg max_parallel "$requested_max_parallel" \
       '
         def apply_overrides:
@@ -1565,10 +1625,12 @@ run_init() {
           else
             .
           end |
+          if $agent_output != "" then .agentOutput = $agent_output else . end |
           if $max_parallel != "" then .maxParallel = ($max_parallel | tonumber) else . end;
 
         .defaults //= {} |
         .defaults.maxAttempts //= 3 |
+        .defaults.agentOutput //= "progress" |
         .defaults.model //= "gpt-5.6-terra" |
         .defaults.coordinatorReasoningEffort //= "medium" |
         .defaults.repositoryAgentReasoningEffort //= "high" |
@@ -1594,11 +1656,13 @@ run_init() {
       --arg model "$requested_model" \
       --arg coordinator_reasoning_effort "$requested_coordinator_reasoning_effort" \
       --arg repository_agent_reasoning_effort "$requested_repository_agent_reasoning_effort" \
+      --arg agent_output "$requested_agent_output" \
       --arg max_parallel "$requested_max_parallel" \
       '{
         version: 1,
         defaults: {
           maxAttempts: 3,
+          agentOutput: "progress",
           model: "gpt-5.6-terra",
           coordinatorReasoningEffort: "medium",
           repositoryAgentReasoningEffort: "high",
@@ -1617,6 +1681,7 @@ run_init() {
       else
         .
       end |
+      if $agent_output != "" then .projects[0].agentOutput = $agent_output else . end |
       if $max_parallel != "" then .projects[0].maxParallel = ($max_parallel | tonumber) else . end' \
       > "$temporary_projects_registry"
   fi
@@ -1830,7 +1895,7 @@ run_config() {
   esac
 
   case "$setting_name" in
-    model|coordinator-reasoning-effort|repository-agent-reasoning-effort|max-parallel|max-attempts)
+    model|coordinator-reasoning-effort|repository-agent-reasoning-effort|agent-output|max-parallel|max-attempts)
       ;;
     *)
       fail "Unknown RepoMux setting: $setting_name" 2
@@ -1851,6 +1916,9 @@ run_config() {
       repository-agent-reasoning-effort)
         resolve_project_repository_agent_reasoning_effort "$selected_project"
         ;;
+      agent-output)
+        resolve_project_agent_output "$selected_project"
+        ;;
       max-parallel)
         resolve_project_max_parallel "$selected_project"
         ;;
@@ -1869,6 +1937,9 @@ run_config() {
       ;;
     coordinator-reasoning-effort|repository-agent-reasoning-effort)
       validate_reasoning_effort "$configured_value"
+      ;;
+    agent-output)
+      validate_agent_output "$configured_value"
       ;;
     max-parallel)
       validate_max_parallel "$configured_value"
@@ -1920,6 +1991,13 @@ run_config() {
             .
           end
         )' \
+        "$projects_registry" > "$registry_stage"
+      ;;
+    agent-output)
+      jq \
+        --arg name "$selected_project" \
+        --arg agent_output "$configured_value" \
+        '.projects |= map(if .name == $name then .agentOutput = $agent_output else . end)' \
         "$projects_registry" > "$registry_stage"
       ;;
     max-parallel)
@@ -2209,12 +2287,14 @@ run_start() {
   local requested_model=""
   local requested_coordinator_reasoning_effort=""
   local requested_repository_agent_reasoning_effort=""
+  local requested_agent_output=""
   local requested_max_parallel=""
   local requested_max_attempts=""
   local allow_dirty_source=false
   local effective_model
   local effective_coordinator_reasoning_effort
   local effective_repository_agent_reasoning_effort
+  local effective_agent_output
   local effective_max_parallel
   local effective_max_attempts
   local repository_keys=()
@@ -2287,6 +2367,15 @@ run_start() {
         requested_repository_agent_reasoning_effort="$2"
         shift 2
         ;;
+      --agent-output)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        requested_agent_output="$2"
+        shift 2
+        ;;
       --max-parallel)
         if [[ "$#" -lt 2 || -z "$2" ]]; then
           usage
@@ -2337,6 +2426,14 @@ run_start() {
   else
     effective_repository_agent_reasoning_effort="$(resolve_project_repository_agent_reasoning_effort "$selected_project")"
     validate_reasoning_effort "$effective_repository_agent_reasoning_effort"
+  fi
+
+  if [[ -n "$requested_agent_output" ]]; then
+    validate_agent_output "$requested_agent_output"
+    effective_agent_output="$requested_agent_output"
+  else
+    effective_agent_output="$(resolve_project_agent_output "$selected_project")"
+    validate_agent_output "$effective_agent_output"
   fi
 
   if [[ -n "$requested_max_parallel" ]]; then
@@ -2398,6 +2495,7 @@ run_start() {
   export REPOMUX_MODEL="$effective_model"
   export REPOMUX_MAX_PARALLEL="$effective_max_parallel"
   export REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT="$effective_repository_agent_reasoning_effort"
+  export REPOMUX_AGENT_OUTPUT="$effective_agent_output"
   export REPOMUX_ALLOW_DIRTY_SOURCE="$allow_dirty_source"
   if [[ "${#codex_arguments[@]}" -gt 0 ]]; then
     exec codex "${launch_arguments[@]}" "${codex_arguments[@]}"

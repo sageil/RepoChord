@@ -227,6 +227,51 @@ jq -e \
   "$auto_result_path" \
   >/dev/null
 
+quiet_run_id="PROJECT-123-quiet"
+
+HOME="$test_home" \
+"$command_bin/repomux" config set \
+  --project repository-agent-test \
+  agent-output quiet \
+  >/dev/null
+
+quiet_run_output="$(
+  PATH="$fake_bin:$PATH" \
+  FAKE_CODEX_MODE=completed \
+  "$runner" \
+    "$quiet_run_id" \
+    "$web_assignment"
+)"
+quiet_result_path="$coordinate_repository/.repomux/results/$quiet_run_id/web.json"
+
+if grep -Eq '^\[web\]' <<< "$quiet_run_output"; then
+  echo "Quiet repository-agent output included live activity." >&2
+  exit 1
+fi
+
+grep -Fqx "$quiet_result_path" <<< "$quiet_run_output"
+jq -e '.status == "completed"' "$quiet_result_path" >/dev/null
+
+HOME="$test_home" \
+"$command_bin/repomux" config set \
+  --project repository-agent-test \
+  agent-output progress \
+  >/dev/null
+
+invalid_output_run_id="PROJECT-123-invalid-output"
+
+if PATH="$fake_bin:$PATH" "$runner" \
+  --agent-output full \
+  "$invalid_output_run_id" \
+  "$web_assignment" \
+  >/dev/null 2>&1
+then
+  echo "Runner unexpectedly accepted an invalid repository-agent output mode." >&2
+  exit 1
+fi
+
+test ! -e "$coordinate_repository/.repomux/results/$invalid_output_run_id"
+
 if [[ -n "$(find "$coordinate_repository/.repomux/results" -maxdepth 1 -name '.run-id.*' -print -quit)" ]]; then
   echo "Runner left a run ID reservation behind." >&2
   exit 1

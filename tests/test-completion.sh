@@ -169,6 +169,28 @@ PATH="$command_bin:$PATH" \
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
+/bin/bash -c '
+  source "$1"
+  COMP_WORDS=(repomux start --agent-output q)
+  COMP_CWORD=3
+  _repomux
+  printf "%s\n" "${COMPREPLY[@]}"
+' completion-test "$bash_completion" \
+  | grep -Fqx quiet
+
+HOME="$test_home" \
+PATH="$command_bin:$PATH" \
+/bin/bash -c '
+  source "$1"
+  COMP_WORDS=(repomux config set agent-output p)
+  COMP_CWORD=4
+  _repomux
+  printf "%s\n" "${COMPREPLY[@]}"
+' completion-test "$bash_completion" \
+  | grep -Fqx progress
+
+HOME="$test_home" \
+PATH="$command_bin:$PATH" \
 zsh -fc '
   autoload -Uz compinit
   compinit -d "$2"
@@ -288,6 +310,36 @@ zsh -fc '
   _repomux
 ' completion-test "$zsh_completion" "$temporary_root/zcompdump-list" \
   | grep -Fqx -- --details
+
+HOME="$test_home" \
+PATH="$command_bin:$PATH" \
+zsh -fc '
+  autoload -Uz compinit
+  compinit -d "$2"
+  source "$1"
+  compadd() {
+    print -l -- "$@"
+  }
+  words=(repomux start --agent-output q)
+  CURRENT=4
+  _repomux
+' completion-test "$zsh_completion" "$temporary_root/zcompdump-agent-output" \
+  | grep -Fqx quiet
+
+HOME="$test_home" \
+PATH="$command_bin:$PATH" \
+zsh -fc '
+  autoload -Uz compinit
+  compinit -d "$2"
+  source "$1"
+  compadd() {
+    print -l -- "$@"
+  }
+  words=(repomux config set agent-output p)
+  CURRENT=5
+  _repomux
+' completion-test "$zsh_completion" "$temporary_root/zcompdump-config-agent-output" \
+  | grep -Fqx progress
 
 if HOME="$test_home" "$repomux_command" completion fish >/dev/null 2>&1; then
   echo "RepoMux unexpectedly generated a completion for an unsupported shell." >&2

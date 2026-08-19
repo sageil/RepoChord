@@ -24,9 +24,10 @@ if [[ -n "${FAKE_REPOMUX_ATTEMPTS_CAPTURE:-}" ]]; then
 fi
 
 if [[ -n "${FAKE_REPOMUX_SETTINGS_CAPTURE:-}" ]]; then
-  printf 'model=%s\nrepository_agent_reasoning_effort=%s\nmax_parallel=%s\nallow_dirty_source=%s\n' \
+  printf 'model=%s\nrepository_agent_reasoning_effort=%s\nagent_output=%s\nmax_parallel=%s\nallow_dirty_source=%s\n' \
     "${REPOMUX_MODEL:-}" \
     "${REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT:-}" \
+    "${REPOMUX_AGENT_OUTPUT:-}" \
     "${REPOMUX_MAX_PARALLEL:-}" \
     "${REPOMUX_ALLOW_DIRTY_SOURCE:-false}" \
     > "$FAKE_REPOMUX_SETTINGS_CAPTURE"

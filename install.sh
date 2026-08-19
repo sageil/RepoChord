@@ -25,6 +25,8 @@ validate_projects_registry_file() {
   jq -e '
     def valid_reasoning_effort:
       . == "minimal" or . == "low" or . == "medium" or . == "high" or . == "xhigh";
+    def valid_agent_output:
+      . == "progress" or . == "quiet";
 
     .version == 1 and
     ((.defaults // {}) | type == "object") and
@@ -37,6 +39,7 @@ validate_projects_registry_file() {
     ((.defaults.model // "gpt-5.6-terra") | test("[[:space:]]") | not) and
     ((.defaults.coordinatorReasoningEffort // "medium") | valid_reasoning_effort) and
     ((.defaults.repositoryAgentReasoningEffort // "high") | valid_reasoning_effort) and
+    ((.defaults.agentOutput // "progress") | valid_agent_output) and
     ((.defaults.maxParallel // 2) | type == "number") and
     ((.defaults.maxParallel // 2) | floor == .) and
     ((.defaults.maxParallel // 2) >= 1) and
@@ -63,6 +66,8 @@ validate_projects_registry_file() {
         (.coordinatorReasoningEffort | valid_reasoning_effort)) and
       ((has("repositoryAgentReasoningEffort") | not) or
         (.repositoryAgentReasoningEffort | valid_reasoning_effort)) and
+      ((has("agentOutput") | not) or
+        (.agentOutput | valid_agent_output)) and
       ((has("maxParallel") | not) or
         ((.maxParallel | type == "number") and
          (.maxParallel | floor == .) and
@@ -344,6 +349,7 @@ if [[ -f "$projects_registry" ]]; then
     '
       .defaults //= {} |
       .defaults.maxAttempts //= 3 |
+      .defaults.agentOutput //= "progress" |
       if $default_model_explicit == "true" then
         .defaults.model = $default_model
       else
@@ -376,6 +382,7 @@ else
       version: 1,
       defaults: {
         maxAttempts: 3,
+        agentOutput: "progress",
         model: $default_model,
         coordinatorReasoningEffort: $default_coordinator_reasoning_effort,
         repositoryAgentReasoningEffort: $default_repository_agent_reasoning_effort,
@@ -422,6 +429,7 @@ echo "Configuration: $projects_registry"
 echo "Default repository-agent model: $(jq -r '.defaults.model' "$projects_registry")"
 echo "Default coordinator reasoning effort: $(jq -r '.defaults.coordinatorReasoningEffort' "$projects_registry")"
 echo "Default repository-agent reasoning effort: $(jq -r '.defaults.repositoryAgentReasoningEffort' "$projects_registry")"
+echo "Default repository-agent output: $(jq -r '.defaults.agentOutput' "$projects_registry")"
 echo "Default maximum parallel repository agents: $(jq -r '.defaults.maxParallel' "$projects_registry")"
 
 case ":${PATH:-}:" in

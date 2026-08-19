@@ -3,12 +3,13 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: run-repository-agent.sh [--model <model>] [--reasoning-effort <effort>] [--profile <profile>] [--max-attempts <count>] [--resume] [--allow-blocked-resume] <repository-key> <repository-path> <run-id> <task-file>" >&2
+  echo "Usage: run-repository-agent.sh [--model <model>] [--reasoning-effort <effort>] [--profile <profile>] [--agent-output <progress|quiet>] [--max-attempts <count>] [--resume] [--allow-blocked-resume] <repository-key> <repository-path> <run-id> <task-file>" >&2
 }
 
 model="gpt-5.6-terra"
 reasoning_effort="${REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT:-high}"
 profile=""
+agent_output="${REPOMUX_AGENT_OUTPUT:-progress}"
 max_attempts="${REPOMUX_MAX_ATTEMPTS:-3}"
 resume=false
 allow_blocked_resume=false
@@ -40,6 +41,15 @@ while [[ "$#" -gt 0 ]]; do
       fi
 
       profile="$2"
+      shift 2
+      ;;
+    --agent-output)
+      if [[ "$#" -lt 2 || -z "$2" ]]; then
+        usage
+        exit 2
+      fi
+
+      agent_output="$2"
       shift 2
       ;;
     --max-attempts)
@@ -113,6 +123,15 @@ case "$reasoning_effort" in
     ;;
 esac
 
+case "$agent_output" in
+  progress|quiet)
+    ;;
+  *)
+    echo "Repository-agent output must be progress or quiet: $agent_output" >&2
+    exit 2
+    ;;
+esac
+
 if [[ ! "$max_attempts" =~ ^[1-9][0-9]*$ || "${#max_attempts}" -gt 9 ]]; then
   echo "Maximum attempts must be a positive integer no greater than 999999999: $max_attempts" >&2
   exit 2
@@ -178,6 +197,10 @@ report_progress() {
   local message="$1"
   local sanitized_message
 
+  if [[ "$agent_output" == "quiet" ]]; then
+    return
+  fi
+
   if ! sanitized_message="$(jq -nr \
     --arg message "$message" \
     '$message | gsub("[\u0000-\u001F\u007F]"; " ") | gsub("  +"; " ")')"
@@ -191,6 +214,10 @@ report_progress() {
 render_agent_event() {
   local event="$1"
   local message
+
+  if [[ "$agent_output" == "quiet" ]]; then
+    return
+  fi
 
   if ! message="$(jq -r '
     def clean:
