@@ -10,6 +10,7 @@ Usage:
   repomux config get [-p <name>] <model|coordinator-reasoning-effort|repository-agent-reasoning-effort|max-parallel|max-attempts>
   repomux config set [-p <name>] <model|coordinator-reasoning-effort|repository-agent-reasoning-effort|max-parallel|max-attempts> <value>
   repomux list [--details]
+  repomux upgrade
   repomux validate [-p <name> | -c <path>]
   repomux report [-p <name>] --run <run-id>
   repomux integrate [-p <name>] --run <run-id> [--dry-run]
@@ -315,24 +316,15 @@ validate_product_repository() {
   printf '%s\n' "$repository_root"
 }
 
-validate_project_files() {
+validate_project_data() {
   local coordinate_path="$1"
   local coordinate_root
-  local installed_skill
   local registry_path
   local repository_path
   local canonical_repository_path
 
   coordinate_root="$(canonical_git_root "$coordinate_path" "Coordination repository")"
-  installed_skill="$coordinate_root/.agents/skills/repomux"
   registry_path="$coordinate_root/.repomux/repositories.json"
-
-  validate_skill_directory "$source_skill"
-  validate_skill_directory "$installed_skill"
-
-  if ! diff -qr "$source_skill" "$installed_skill" >/dev/null; then
-    fail "Installed project skill differs from the RepoMux installation: $installed_skill"
-  fi
 
   validate_repository_registry "$registry_path"
 
@@ -351,6 +343,176 @@ validate_project_files() {
   validated_coordinate_root="$coordinate_root"
   validated_repository_registry="$registry_path"
 }
+
+validate_project_files() {
+  local coordinate_path="$1"
+  local coordinate_root
+  local installed_skill
+
+  coordinate_root="$(canonical_git_root "$coordinate_path" "Coordination repository")"
+  installed_skill="$coordinate_root/.agents/skills/repomux"
+
+  validate_skill_directory "$source_skill"
+
+  if [[ -L "$installed_skill" ]]; then
+    fail "Refusing to use a symbolic link as a RepoMux skill: $installed_skill"
+  fi
+
+  if [[ ! -d "$installed_skill" ]] || ! diff -qr "$source_skill" "$installed_skill" >/dev/null; then
+    fail "Installed project skill differs from RepoMux: $installed_skill. Run repomux upgrade."
+  fi
+
+  validate_skill_directory "$installed_skill"
+  validate_project_data "$coordinate_root"
+}
+
+validate_upgrade_target() {
+  local coordinate_path="$1"
+  local coordinate_root
+  local destination_skill
+  local expected_directory
+
+  coordinate_root="$(canonical_git_root "$coordinate_path" "Coordination repository")"
+
+  if [[ "$coordinate_path" != "$coordinate_root" ]]; then
+    fail "Registered coordination repository path is not canonical: $coordinate_path"
+  fi
+
+  for expected_directory in \
+    "$coordinate_root/.agents" \
+    "$coordinate_root/.agents/skills" \
+    "$coordinate_root/.repomux"
+  do
+    if [[ -L "$expected_directory" ]]; then
+      fail "Refusing to use a symbolic link as a project directory: $expected_directory"
+    fi
+
+    if [[ ! -d "$expected_directory" ]]; then
+      fail "Required project directory does not exist: $expected_directory"
+    fi
+  done
+
+  destination_skill="$coordinate_root/.agents/skills/repomux"
+
+  if [[ -L "$destination_skill" ]]; then
+    fail "Refusing to use a symbolic link as the project skill: $destination_skill"
+  fi
+
+  if [[ -e "$destination_skill" && ! -d "$destination_skill" ]]; then
+    fail "Project skill path is not a directory: $destination_skill"
+  fi
+
+  validate_project_data "$coordinate_root"
+  validated_upgrade_coordinate="$coordinate_root"
+}
+
+upgrade_project_runtime() (
+  set -euo pipefail
+
+  local coordinate_path="$1"
+  local project_name="$2"
+  local coordinate_root
+  local skills_directory
+  local destination_skill
+  local upgrade_workspace=""
+  local replacement_skill
+  local previous_skill
+  local failed_skill
+  local destination_existed=false
+  local replacement_install_started=false
+
+  cleanup_project_upgrade() {
+    local status="$?"
+    local rollback_failed=false
+
+    trap - EXIT INT TERM
+
+    if [[ "$status" -ne 0 && -n "$upgrade_workspace" ]]; then
+      failed_skill="$upgrade_workspace/failed"
+
+      if [[ -e "$previous_skill" ]]; then
+        if [[ -e "$destination_skill" ]] && ! mv -- "$destination_skill" "$failed_skill"; then
+          echo "Could not remove the failed RepoMux skill during rollback: $destination_skill" >&2
+          rollback_failed=true
+        fi
+
+        if [[ -e "$destination_skill" ]]; then
+          echo "Could not restore the previous RepoMux skill because its path is occupied: $destination_skill" >&2
+          rollback_failed=true
+        elif ! mv -- "$previous_skill" "$destination_skill"; then
+          echo "Could not restore the previous RepoMux skill: $previous_skill" >&2
+          rollback_failed=true
+        fi
+      elif [[ "$destination_existed" == false &&
+        "$replacement_install_started" == true &&
+        -e "$destination_skill" ]]
+      then
+        if ! mv -- "$destination_skill" "$failed_skill"; then
+          echo "Could not remove the failed RepoMux skill during rollback: $destination_skill" >&2
+          rollback_failed=true
+        fi
+      fi
+    fi
+
+    if [[ "$rollback_failed" == true ]]; then
+      echo "RepoMux kept the upgrade workspace for manual recovery: $upgrade_workspace" >&2
+      exit 1
+    fi
+
+    if [[ -n "$upgrade_workspace" ]]; then
+      rm -rf -- "$upgrade_workspace"
+    fi
+
+    exit "$status"
+  }
+
+  trap cleanup_project_upgrade EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  validate_upgrade_target "$coordinate_path"
+  coordinate_root="$validated_upgrade_coordinate"
+  skills_directory="$coordinate_root/.agents/skills"
+  destination_skill="$skills_directory/repomux"
+
+  if [[ -d "$destination_skill" ]] && diff -qr "$source_skill" "$destination_skill" >/dev/null; then
+    validate_skill_directory "$destination_skill"
+    echo "RepoMux project is already current: $project_name"
+    exit 0
+  fi
+
+  if [[ -d "$destination_skill" ]]; then
+    destination_existed=true
+  fi
+
+  if ! upgrade_workspace="$(mktemp -d "$skills_directory/.repomux-upgrade.XXXXXX")"; then
+    fail "Could not create an upgrade workspace for: $project_name"
+  fi
+
+  replacement_skill="$upgrade_workspace/replacement"
+  previous_skill="$upgrade_workspace/previous"
+  mkdir "$replacement_skill" || fail "Could not stage the RepoMux skill for: $project_name"
+  cp -R "$source_skill/." "$replacement_skill/" || fail "Could not copy the RepoMux skill for: $project_name"
+  chmod +x "$replacement_skill"/scripts/*.sh || fail "Could not make the staged RepoMux scripts executable for: $project_name"
+  validate_skill_directory "$replacement_skill"
+
+  if [[ -d "$destination_skill" ]]; then
+    mv -- "$destination_skill" "$previous_skill" || fail "Could not preserve the previous RepoMux skill for: $project_name"
+  fi
+
+  replacement_install_started=true
+  mv -- "$replacement_skill" "$destination_skill" || fail "Could not install the RepoMux skill for: $project_name"
+
+  validate_skill_directory "$destination_skill"
+
+  if ! diff -qr "$source_skill" "$destination_skill" >/dev/null; then
+    fail "Upgraded project skill differs from RepoMux: $destination_skill"
+  fi
+
+  validate_project_data "$coordinate_root"
+  echo "Upgraded RepoMux project: $project_name"
+  exit 0
+)
 
 path_is_within() {
   local candidate="$1"
@@ -718,7 +880,7 @@ _repomux() {
   local index
   local skip_next=false
   local candidates=""
-  local commands="start init config list validate integrate cleanup completion"
+  local commands="start init config list upgrade validate report integrate cleanup completion"
   local settings="model coordinator-reasoning-effort repository-agent-reasoning-effort max-parallel max-attempts"
   local efforts="minimal low medium high xhigh"
 
@@ -820,6 +982,9 @@ _repomux() {
     list)
       candidates="--details -h --help"
       ;;
+    upgrade)
+      candidates="-h --help"
+      ;;
     validate)
       candidates="-p --project -c --coordinate -h --help"
       ;;
@@ -904,7 +1069,7 @@ _repomux() {
   local -a settings
   local -a efforts
 
-  commands=(start init config list validate integrate cleanup completion)
+  commands=(start init config list upgrade validate report integrate cleanup completion)
   settings=(model coordinator-reasoning-effort repository-agent-reasoning-effort max-parallel max-attempts)
   efforts=(minimal low medium high xhigh)
 
@@ -1006,6 +1171,9 @@ _repomux() {
       ;;
     list)
       candidates=(--details -h --help)
+      ;;
+    upgrade)
+      candidates=(-h --help)
       ;;
     validate)
       candidates=(-p --project -c --coordinate -h --help)
@@ -1142,7 +1310,6 @@ run_init() {
   local existing_project
   temporary_repository_registry=""
   temporary_projects_registry=""
-  skill_stage=""
   registry_stage=""
   projects_stage=""
 
@@ -1303,10 +1470,6 @@ run_init() {
   cleanup_init() {
     rm -f -- "$temporary_repository_registry" "$temporary_projects_registry"
 
-    if [[ -n "$skill_stage" ]]; then
-      rm -rf -- "$skill_stage"
-    fi
-
     if [[ -n "$registry_stage" ]]; then
       rm -f -- "$registry_stage"
     fi
@@ -1331,10 +1494,6 @@ run_init() {
     fi
   else
     cp "$registry_path" "$temporary_repository_registry"
-  fi
-
-  if [[ -e "$destination_skill" ]] && ! diff -qr "$source_skill" "$destination_skill" >/dev/null; then
-    fail "Installed project skill differs from RepoMux: $destination_skill"
   fi
 
   for expected_directory in \
@@ -1474,17 +1633,6 @@ run_init() {
     "$coordinate_root/requests" \
     "$coordinate_root/tasks"
 
-  if [[ ! -e "$destination_skill" ]]; then
-    skill_stage="$(mktemp -d "$coordinate_root/.agents/skills/.repomux.XXXXXX")"
-    cp -R "$source_skill/." "$skill_stage/"
-    chmod +x "$skill_stage"/scripts/*.sh
-    validate_skill_directory "$skill_stage"
-    mv -- "$skill_stage" "$destination_skill"
-    skill_stage=""
-  fi
-
-  chmod +x "$destination_skill"/scripts/*.sh
-
   if [[ ! -e "$coordinate_root/.repomux/results/.gitignore" ]]; then
     printf '*\n!.gitignore\n' > "$coordinate_root/.repomux/results/.gitignore"
   fi
@@ -1499,6 +1647,8 @@ run_init() {
     mv -- "$registry_stage" "$registry_path"
     registry_stage=""
   fi
+
+  upgrade_project_runtime "$coordinate_root" "$project_name"
 
   mkdir -p "$repomux_config_directory"
 
@@ -1516,6 +1666,59 @@ run_init() {
   echo "Coordination repository: $coordinate_root"
   echo "Repository registry: $registry_path"
   echo "Skill: $destination_skill"
+}
+
+run_upgrade() {
+  local project_count
+  local project_name
+  local coordinate_path
+  local project_index
+  local failure_count=0
+  local project_names=()
+  local coordinate_paths=()
+
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        fail "Unknown upgrade argument: $1" 2
+        ;;
+    esac
+  done
+
+  require_commands bash cp diff git jq mktemp mv
+  validate_skill_directory "$source_skill"
+  validate_projects_registry
+  project_count="$(jq '.projects | length' "$projects_registry")"
+
+  if [[ "$project_count" -eq 0 ]]; then
+    echo "No registered RepoMux projects to upgrade."
+    return
+  fi
+
+  while IFS=$'\t' read -r project_name coordinate_path; do
+    validate_upgrade_target "$coordinate_path"
+    project_names+=("$project_name")
+    coordinate_paths+=("$validated_upgrade_coordinate")
+  done < <(jq -r '.projects[] | [.name, .coordinate] | @tsv' "$projects_registry")
+
+  for ((project_index = 0; project_index < ${#project_names[@]}; project_index++)); do
+    if ! upgrade_project_runtime \
+      "${coordinate_paths[$project_index]}" \
+      "${project_names[$project_index]}"
+    then
+      failure_count=$((failure_count + 1))
+    fi
+  done
+
+  if [[ "$failure_count" -ne 0 ]]; then
+    fail "RepoMux could not upgrade $failure_count of $project_count registered projects."
+  fi
+
+  echo "RepoMux upgrade complete: $project_count registered projects are current."
 }
 
 run_list() {
@@ -2231,6 +2434,10 @@ case "$1" in
   list)
     shift
     run_list "$@"
+    ;;
+  upgrade)
+    shift
+    run_upgrade "$@"
     ;;
   validate)
     shift

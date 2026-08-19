@@ -793,16 +793,16 @@ if "$scaffolder" PROJECT-123 api web >/dev/null 2>&1; then
 fi
 
 printf '\nlocal change\n' >> "$coordinate_repository/.agents/skills/repomux/SKILL.md"
+printf 'obsolete project runtime file\n' > "$coordinate_repository/.agents/skills/repomux/obsolete.txt"
 
-if HOME="$test_home" "$repomux_command" init \
+HOME="$test_home" "$repomux_command" init \
   --project acme-commerce \
   --coordinate "$coordinate_repository" \
   --repository "api=$api_repository" \
   --repository "web=$web_repository" \
-  >/dev/null 2>&1
-then
-  echo "RepoMux unexpectedly overwrote a changed project skill." >&2
-  exit 1
-fi
+  >/dev/null
+
+diff -qr "$installed_data/skill" "$coordinate_repository/.agents/skills/repomux" >/dev/null
+test ! -e "$coordinate_repository/.agents/skills/repomux/obsolete.txt"
 
 echo "Installer tests passed."

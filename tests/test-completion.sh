@@ -109,6 +109,57 @@ HOME="$test_home" \
 PATH="$command_bin:$PATH" \
 /bin/bash -c '
   source "$1"
+  COMP_WORDS=(repomux report --project acme-commerce --run ORDER)
+  COMP_CWORD=5
+  _repomux
+  printf "%s\n" "${COMPREPLY[@]}"
+' completion-test "$bash_completion" \
+  | grep -Fqx ORDER-123-run-a1b2c3
+
+HOME="$test_home" \
+PATH="$command_bin:$PATH" \
+/bin/bash -c '
+  source "$1"
+  COMP_WORDS=(repomux rep)
+  COMP_CWORD=1
+  _repomux
+  printf "%s\n" "${COMPREPLY[@]}"
+' completion-test "$bash_completion" \
+  | grep -Fqx report
+
+HOME="$test_home" \
+PATH="$command_bin:$PATH" \
+/bin/bash -c '
+  source "$1"
+  COMP_WORDS=(repomux up)
+  COMP_CWORD=1
+  _repomux
+  printf "%s\n" "${COMPREPLY[@]}"
+' completion-test "$bash_completion" \
+  | grep -Fqx upgrade
+
+HOME="$test_home" \
+PATH="$command_bin:$PATH" \
+/bin/bash -c '
+  source "$1"
+  COMP_WORDS=(repomux upgrade --)
+  COMP_CWORD=2
+  _repomux
+  printf "%s\n" "${COMPREPLY[@]}"
+' completion-test "$bash_completion" \
+  > "$temporary_root/bash-upgrade-options.txt"
+
+grep -Fqx -- --help "$temporary_root/bash-upgrade-options.txt"
+
+if grep -Eq -- '^(--project|--coordinate|-p|-c)$' "$temporary_root/bash-upgrade-options.txt"; then
+  echo "Bash completion offered a project selector for upgrade." >&2
+  exit 1
+fi
+
+HOME="$test_home" \
+PATH="$command_bin:$PATH" \
+/bin/bash -c '
+  source "$1"
   COMP_WORDS=(repomux list --d)
   COMP_CWORD=2
   _repomux
@@ -155,6 +206,73 @@ zsh -fc '
   _repomux
 ' completion-test "$zsh_completion" "$temporary_root/zcompdump-run" \
   | grep -Fqx ORDER-123-run-a1b2c3
+
+HOME="$test_home" \
+PATH="$command_bin:$PATH" \
+zsh -fc '
+  autoload -Uz compinit
+  compinit -d "$2"
+  source "$1"
+  compadd() {
+    print -l -- "$@"
+  }
+  words=(repomux report --project acme-commerce --run ORDER)
+  CURRENT=6
+  _repomux
+' completion-test "$zsh_completion" "$temporary_root/zcompdump-report-run" \
+  | grep -Fqx ORDER-123-run-a1b2c3
+
+HOME="$test_home" \
+PATH="$command_bin:$PATH" \
+zsh -fc '
+  autoload -Uz compinit
+  compinit -d "$2"
+  source "$1"
+  compadd() {
+    print -l -- "$@"
+  }
+  words=(repomux rep)
+  CURRENT=2
+  _repomux
+' completion-test "$zsh_completion" "$temporary_root/zcompdump-report-command" \
+  | grep -Fqx report
+
+HOME="$test_home" \
+PATH="$command_bin:$PATH" \
+zsh -fc '
+  autoload -Uz compinit
+  compinit -d "$2"
+  source "$1"
+  compadd() {
+    print -l -- "$@"
+  }
+  words=(repomux up)
+  CURRENT=2
+  _repomux
+' completion-test "$zsh_completion" "$temporary_root/zcompdump-upgrade-command" \
+  | grep -Fqx upgrade
+
+HOME="$test_home" \
+PATH="$command_bin:$PATH" \
+zsh -fc '
+  autoload -Uz compinit
+  compinit -d "$2"
+  source "$1"
+  compadd() {
+    print -l -- "$@"
+  }
+  words=(repomux upgrade --)
+  CURRENT=3
+  _repomux
+' completion-test "$zsh_completion" "$temporary_root/zcompdump-upgrade-options" \
+  > "$temporary_root/zsh-upgrade-options.txt"
+
+grep -Fqx -- --help "$temporary_root/zsh-upgrade-options.txt"
+
+if grep -Eq -- '^(--project|--coordinate|-p|-c)$' "$temporary_root/zsh-upgrade-options.txt"; then
+  echo "Zsh completion offered a project selector for upgrade." >&2
+  exit 1
+fi
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
