@@ -148,6 +148,32 @@ emit_usage() {
   }'
 }
 
+emit_activity() {
+  jq -nc '{type: "turn.started"}'
+  jq -nc '{
+    type: "item.started",
+    item: {
+      type: "command_execution",
+      command: "npm run check"
+    }
+  }'
+  jq -nc '{
+    type: "item.completed",
+    item: {
+      type: "command_execution",
+      command: "npm run check",
+      exit_code: 0
+    }
+  }'
+  jq -nc '{
+    type: "item.completed",
+    item: {
+      type: "agent_message",
+      text: "Implementation is complete."
+    }
+  }'
+}
+
 create_change() {
   change_file="fake-$run_id.txt"
   printf 'fake repository-agent change\n' > "$repository_path/$change_file"
@@ -183,6 +209,7 @@ mode="${FAKE_CODEX_MODE:-completed}"
 
 case "$mode" in
   completed)
+    emit_activity
     create_change
     jq -n \
       --arg run_id "$run_id" \

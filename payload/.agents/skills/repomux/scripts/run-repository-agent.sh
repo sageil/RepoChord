@@ -174,6 +174,61 @@ cleanup() {
 
 trap cleanup EXIT
 
+report_progress() {
+  local message="$1"
+  local sanitized_message
+
+  if ! sanitized_message="$(jq -nr \
+    --arg message "$message" \
+    '$message | gsub("[\u0000-\u001F\u007F]"; " ") | gsub("  +"; " ")')"
+  then
+    sanitized_message="unavailable"
+  fi
+
+  printf '[%s] %s\n' "$repository_key" "$sanitized_message"
+}
+
+render_agent_event() {
+  local event="$1"
+  local message
+
+  if ! message="$(jq -r '
+    def clean:
+      tostring |
+      gsub("[\u0000-\u001F\u007F]"; " ") |
+      gsub("  +"; " ") |
+      if length > 500 then .[0:500] + "..." else . end;
+
+    if .type == "turn.started" then
+      "turn started"
+    elif .type == "item.started" and .item.type == "command_execution" then
+      "running command: " + (.item.command | clean)
+    elif .type == "item.completed" and .item.type == "command_execution" then
+      "command finished (exit " + ((.item.exit_code // "unknown") | tostring) + "): " + (.item.command | clean)
+    elif .type == "item.completed" and .item.type == "file_change" then
+      "changed files: " + (([.item.changes[]?.path] | join(", ")) | clean)
+    elif .type == "item.started" and .item.type == "mcp_tool_call" then
+      "calling tool: " + ((.item.server // "unknown") | clean) + "/" + ((.item.tool // "unknown") | clean)
+    elif .type == "item.completed" and .item.type == "agent_message" then
+      "agent update: " + (.item.text | clean)
+    elif .type == "turn.completed" then
+      "turn completed"
+    elif .type == "turn.failed" then
+      "turn failed: " + ((if (.error | type) == "object" then .error.message else .error end) // "unknown error" | clean)
+    elif .type == "error" then
+      "error: " + ((.message // "unknown error") | clean)
+    else
+      empty
+    end
+  ' <<< "$event" 2>/dev/null)"; then
+    return
+  fi
+
+  if [[ -n "$message" ]]; then
+    report_progress "$message"
+  fi
+}
+
 capture_repository_state() {
   observed_head=""
   observed_branch=""
@@ -356,7 +411,7 @@ persist_response_result() {
     ' "$last_valid_response" > "$temporary_result"
 
   mv -- "$temporary_result" "$result_path"
-  printf '%s\n' "$result_path"
+  report_progress "result saved: $result_path"
 }
 
 persist_system_result() {
@@ -419,7 +474,7 @@ persist_system_result() {
     }' > "$temporary_result"
 
   mv -- "$temporary_result" "$result_path"
-  printf '%s\n' "$result_path"
+  report_progress "result saved: $result_path"
 }
 
 finish_incomplete() {
@@ -445,6 +500,8 @@ finish_incomplete() {
   else
     persist_system_result "$final_status" "$summary" "$blocker" "$retry_safe"
   fi
+
+  report_progress "$final_status: $blocker"
 }
 
 finish_blocked() {
@@ -465,6 +522,8 @@ finish_blocked() {
       "$blocker" \
       false
   fi
+
+  report_progress "blocked: $blocker"
 }
 
 if [[ ! -f "$response_schema_path" || ! -f "$result_schema_path" ]]; then
@@ -759,13 +818,25 @@ while [[ "$attempt_count" -lt "$max_attempts" ]]; do
   )
 
   repository_agent_exit_code=0
+  report_progress "attempt $attempt_count of $max_attempts started"
+  : > "$events_path"
 
+  set +e
   PATH="$guard_directory:$PATH" \
   "${codex_command[@]}" \
     < "$task_file" \
-    > "$events_path" \
-    2> "$log_path" \
-    || repository_agent_exit_code=$?
+    2> "$log_path" |
+    while IFS= read -r event || [[ -n "$event" ]]; do
+      printf '%s\n' "$event" >> "$events_path"
+      render_agent_event "$event"
+    done
+  pipeline_status=("${PIPESTATUS[@]}")
+  set -e
+  repository_agent_exit_code="${pipeline_status[0]}"
+
+  if [[ "${pipeline_status[1]}" -ne 0 && "$repository_agent_exit_code" -eq 0 ]]; then
+    repository_agent_exit_code="${pipeline_status[1]}"
+  fi
 
   extract_attempt_usage "$events_path"
   capture_repository_state
@@ -798,6 +869,7 @@ while [[ "$attempt_count" -lt "$max_attempts" ]]; do
   fi
 
   if [[ -n "$failure_reason" ]]; then
+    report_progress "attempt $attempt_count failed: $failure_reason"
     previous_attempt_context="$failure_reason"
 
     if [[ "$head_changed" == true ]]; then
@@ -872,6 +944,7 @@ while [[ "$attempt_count" -lt "$max_attempts" ]]; do
       fi
 
       persist_response_result "completed" false "" ""
+      report_progress "completed: commit $observed_head"
       rm -f -- "${created_logs[@]}" "${created_events[@]}"
       exit 0
     fi

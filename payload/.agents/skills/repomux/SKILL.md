@@ -101,6 +101,10 @@ Use `--max-attempts <count>` on `run-repository-agents.sh` only when the current
 
 `run-repository-agents.sh` starts one isolated `codex exec` process for each repository, applies the concurrency limit, and waits for every repository result.
 
+The runner streams compact repository-prefixed activity while each repository agent works.
+
+Do not start separate monitoring commands while the runner is active.
+
 For each repository, RepoMux records the source branch and commit, creates `repomux/<run-id>/<repository-key>`, and checks out that branch in `.repomux/worktrees/<run-id>/<repository-key>`.
 
 All repository-agent attempts run in that dedicated worktree.
@@ -141,36 +145,23 @@ Retry a blocked repository only after the user approves it, then pass `--retry-b
 
 Do not reset, restore, delete, or rewrite incomplete repository-agent changes automatically.
 
-## Verify results
+## Accept the runner result
 
-Read each JSON result under `.repomux/results/<run-id>/`.
+`run-repository-agents.sh` owns repository execution, result validation, Git-state validation, report generation, and the final exit status.
 
-Do not read repository-agent logs unless the user explicitly requests failure diagnosis.
+Do not repeat its work with separate `jq`, `git`, result-file, worktree, or report commands.
 
-Do not copy source files, diffs, command output, or exploration notes into the coordinator response.
+Do not read repository-agent logs unless the runner fails and the user requests failure diagnosis.
 
-For each completed result, verify:
+A zero exit means every required repository completed and passed the runner's validation.
 
-- The result commit matches the RepoMux worktree `HEAD`.
-- The result commit is on `repomux/<run-id>/<repository-key>`.
-- The result records the source repository path, base branch, base commit, worktree path, and worktree branch.
-- The worktree is clean.
-- At least one test is reported.
-- Every reported test passed.
-- The reported test commands cover the required verification in the repository task.
-- No blockers remain.
+A nonzero exit means the run is incomplete or invalid.
 
-Report overall completion only when every required repository result passes these checks.
-
-Treat `failed` with `execution.retry_safe` set to `true` as unchanged and clean after all configured attempts.
-
-Treat `blocked` as requiring explicit user approval before retry in the same run.
-
-A blocked result must include at least one nonempty blocker.
+Treat a blocked result as requiring explicit user approval before retry in the same run.
 
 ## Present the integration commands
 
-When every required repository is complete, include these exact next actions with the generated run ID:
+The generated report includes these exact next actions when every required repository is complete:
 
 ```bash
 repomux integrate --run <run-id> --dry-run
@@ -200,15 +191,11 @@ Cleanup removes the worktree and preserves its RepoMux branch and commits.
 
 ## Report
 
-`run-repository-agents.sh` appends the same deterministic receipt that `repomux report` prints.
+`run-repository-agents.sh` runs the reporter as its final workflow action.
 
-After verifying the repository state, run this as the final workflow action:
+Do not run `repomux report` again after the runner finishes.
 
-```bash
-repomux report --run <run-id>
-```
-
-The command prints a short receipt and saves the complete deterministic report at the path in that receipt.
+The runner prints a short receipt and saves the complete deterministic report at the path in that receipt.
 
 Read the complete report file from the exact path printed by the command.
 

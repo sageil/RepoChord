@@ -880,7 +880,6 @@ while [[ "$next_index" -lt "$launch_count" ]]; do
       "${repository_paths[$index]}" \
       "$run_id" \
       "${task_files[$index]}" \
-      > /dev/null \
       2> "$launcher_log" &
 
     pids+=("$!")

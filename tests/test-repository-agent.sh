@@ -197,7 +197,7 @@ auto_run_output="$(
   "$runner" \
     "$web_assignment"
 )"
-auto_result_path="${auto_run_output%%$'\n'*}"
+auto_result_path="$(printf '%s\n' "$auto_run_output" | grep -E '^/.*/web\.json$' | tail -1)"
 auto_run_directory="$(dirname -- "$auto_result_path")"
 auto_run_id="$(basename -- "$auto_run_directory")"
 auto_run_prefix="PROJECT-123-run-"
@@ -212,6 +212,14 @@ then
 fi
 
 test "$auto_result_path" = "$coordinate_repository/.repomux/results/$auto_run_id/web.json"
+grep -Fqx '[web] attempt 1 of 3 started' <<< "$auto_run_output"
+grep -Fqx '[web] turn started' <<< "$auto_run_output"
+grep -Fqx '[web] running command: npm run check' <<< "$auto_run_output"
+grep -Fqx '[web] command finished (exit 0): npm run check' <<< "$auto_run_output"
+grep -Fqx '[web] agent update: Implementation is complete.' <<< "$auto_run_output"
+grep -Fqx '[web] turn completed' <<< "$auto_run_output"
+grep -Fqx "[web] result saved: $auto_result_path" <<< "$auto_run_output"
+grep -Eq '^\[web\] completed: commit [0-9a-f]+$' <<< "$auto_run_output"
 
 jq -e \
   --arg run_id "$auto_run_id" \
