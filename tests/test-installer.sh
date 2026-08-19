@@ -735,6 +735,32 @@ test -f "$coordinate_repository/tasks/PROJECT-123/api.md"
 test -f "$coordinate_repository/tasks/PROJECT-123/web.md"
 test -f "$coordinate_repository/tasks/PROJECT-123/assignments.txt"
 
+"$scaffolder" editable-shipping-address api web >/dev/null
+existing_request="$coordinate_repository/requests/editable-shipping-address.md"
+existing_assignments="$coordinate_repository/tasks/editable-shipping-address/assignments.txt"
+existing_request_hash="$(git hash-object "$existing_request")"
+existing_assignments_hash="$(git hash-object "$existing_assignments")"
+resolved_output="$("$scaffolder" --title "Editable shipping address" api web)"
+resolved_request_path="${resolved_output%%$'\n'*}"
+resolved_assignment_path="${resolved_output#*$'\n'}"
+resolved_assignment_path="${resolved_assignment_path%%$'\n'*}"
+case_variant_output="$("$scaffolder" EDITABLE-SHIPPING-ADDRESS api web)"
+case_variant_request_path="${case_variant_output%%$'\n'*}"
+case_variant_assignment_path="${case_variant_output#*$'\n'}"
+case_variant_assignment_path="${case_variant_assignment_path%%$'\n'*}"
+
+test "$resolved_request_path" = "$existing_request"
+test "$resolved_assignment_path" = "$existing_assignments"
+test "$case_variant_request_path" = "$existing_request"
+test "$case_variant_assignment_path" = "$existing_assignments"
+test "$existing_request_hash" = "$(git hash-object "$existing_request")"
+test "$existing_assignments_hash" = "$(git hash-object "$existing_assignments")"
+
+if find "$coordinate_repository/requests" -maxdepth 1 -name 'editable-shipping-address-*.md' -print -quit | grep -q .; then
+  echo "Scaffolder created a duplicate for an existing normalized feature title." >&2
+  exit 1
+fi
+
 generated_output="$("$scaffolder" --title "Customer order cancellation" api web)"
 generated_request_path="${generated_output%%$'\n'*}"
 generated_assignment_path="${generated_output#*$'\n'}"
@@ -787,10 +813,12 @@ fi
 test ! -e "$coordinate_repository/.repomux/results/PROJECT-123-preflight"
 rm -f -- "$api_repository/preflight-dirty.tmp"
 
-if "$scaffolder" PROJECT-123 api web >/dev/null 2>&1; then
-  echo "Scaffolder unexpectedly overwrote an existing feature." >&2
-  exit 1
-fi
+existing_explicit_output="$("$scaffolder" PROJECT-123 api web)"
+existing_explicit_request="${existing_explicit_output%%$'\n'*}"
+existing_explicit_assignments="${existing_explicit_output#*$'\n'}"
+existing_explicit_assignments="${existing_explicit_assignments%%$'\n'*}"
+test "$existing_explicit_request" = "$coordinate_repository/requests/PROJECT-123.md"
+test "$existing_explicit_assignments" = "$coordinate_repository/tasks/PROJECT-123/assignments.txt"
 
 printf '\nlocal change\n' >> "$coordinate_repository/.agents/skills/repomux/SKILL.md"
 printf 'obsolete project runtime file\n' > "$coordinate_repository/.agents/skills/repomux/obsolete.txt"

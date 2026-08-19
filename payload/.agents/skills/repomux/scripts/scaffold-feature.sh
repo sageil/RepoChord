@@ -13,6 +13,7 @@ usage() {
 feature_id=""
 feature_title=""
 generate_feature_id=false
+reuse_existing_feature=false
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
@@ -61,11 +62,7 @@ elif [[ ! "$feature_id" =~ ^[A-Za-z0-9._-]+$ ]]; then
   exit 2
 fi
 
-required_commands=(git jq)
-
-if [[ "$generate_feature_id" == true ]]; then
-  required_commands+=(tr)
-fi
+required_commands=(git jq tr)
 
 for required_command in "${required_commands[@]}"; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
@@ -85,6 +82,61 @@ script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 skill_directory="$(cd -- "$script_directory/.." && pwd -P)"
 coordinate_root="$(git -C "$skill_directory" rev-parse --show-toplevel)"
 registry_path="$coordinate_root/.repomux/repositories.json"
+
+resolved_existing_feature_id=""
+
+resolve_existing_feature_id() {
+  local requested_feature_id="$1"
+  local normalized_requested_feature_id
+  local candidate_path
+  local candidate_feature_id
+  local normalized_candidate_feature_id
+  local existing_feature_id
+  local already_recorded
+  local matching_feature_ids=()
+
+  normalized_requested_feature_id="$(printf '%s' "$requested_feature_id" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+
+  for candidate_path in "$coordinate_root/requests/"*.md "$coordinate_root/tasks/"*; do
+    if [[ ! -e "$candidate_path" && ! -L "$candidate_path" ]]; then
+      continue
+    fi
+
+    candidate_feature_id="$(basename -- "$candidate_path")"
+
+    if [[ "$candidate_path" == "$coordinate_root/requests/"*.md ]]; then
+      candidate_feature_id="${candidate_feature_id%.md}"
+    fi
+
+    normalized_candidate_feature_id="$(printf '%s' "$candidate_feature_id" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+
+    if [[ "$normalized_candidate_feature_id" != "$normalized_requested_feature_id" ]]; then
+      continue
+    fi
+
+    already_recorded=false
+
+    for existing_feature_id in ${matching_feature_ids[@]+"${matching_feature_ids[@]}"}; do
+      if [[ "$existing_feature_id" == "$candidate_feature_id" ]]; then
+        already_recorded=true
+        break
+      fi
+    done
+
+    if [[ "$already_recorded" == false ]]; then
+      matching_feature_ids+=("$candidate_feature_id")
+    fi
+  done
+
+  if [[ "${#matching_feature_ids[@]}" -gt 1 ]]; then
+    echo "Feature ID differs only by letter case: $requested_feature_id" >&2
+    exit 2
+  fi
+
+  if [[ "${#matching_feature_ids[@]}" -eq 1 ]]; then
+    resolved_existing_feature_id="${matching_feature_ids[0]}"
+  fi
+}
 
 identifier_reservation=""
 staging_directory=""
@@ -131,23 +183,38 @@ if [[ "$generate_feature_id" == true ]]; then
     feature_slug="feature"
   fi
 
-  while true; do
-    identifier_reservation="$(mktemp -d "$coordinate_root/.repomux-feature-id.XXXXXX")"
-    identifier_suffix="$(basename -- "$identifier_reservation")"
-    identifier_suffix="${identifier_suffix##*.}"
-    identifier_suffix="$(printf '%s' "$identifier_suffix" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
-    feature_id="$feature_slug-$identifier_suffix"
+  resolve_existing_feature_id "$feature_slug"
+
+  if [[ -n "$resolved_existing_feature_id" ]]; then
+    feature_id="$resolved_existing_feature_id"
     request_path="$coordinate_root/requests/$feature_id.md"
     task_directory="$coordinate_root/tasks/$feature_id"
+    reuse_existing_feature=true
+  else
+    while true; do
+      identifier_reservation="$(mktemp -d "$coordinate_root/.repomux-feature-id.XXXXXX")"
+      identifier_suffix="$(basename -- "$identifier_reservation")"
+      identifier_suffix="${identifier_suffix##*.}"
+      identifier_suffix="$(printf '%s' "$identifier_suffix" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+      feature_id="$feature_slug-$identifier_suffix"
+      request_path="$coordinate_root/requests/$feature_id.md"
+      task_directory="$coordinate_root/tasks/$feature_id"
 
-    if [[ ! -e "$request_path" && ! -e "$task_directory" ]]; then
-      break
-    fi
+      if [[ ! -e "$request_path" && ! -e "$task_directory" ]]; then
+        break
+      fi
 
-    rm -rf -- "$identifier_reservation"
-    identifier_reservation=""
-  done
+      rm -rf -- "$identifier_reservation"
+      identifier_reservation=""
+    done
+  fi
 else
+  resolve_existing_feature_id "$feature_id"
+
+  if [[ -n "$resolved_existing_feature_id" ]]; then
+    feature_id="$resolved_existing_feature_id"
+  fi
+
   request_path="$coordinate_root/requests/$feature_id.md"
   task_directory="$coordinate_root/tasks/$feature_id"
 fi
@@ -155,8 +222,7 @@ fi
 assignment_path="$task_directory/assignments.txt"
 
 if [[ -e "$request_path" || -e "$task_directory" ]]; then
-  echo "Feature files already exist for: $feature_id" >&2
-  exit 2
+  reuse_existing_feature=true
 fi
 
 repository_keys=()
@@ -220,6 +286,84 @@ for repository_key in "$@"; do
   repository_keys+=("$repository_key")
   repository_paths+=("$canonical_repository_path")
 done
+
+if [[ "$reuse_existing_feature" == true ]]; then
+  if [[ -L "$request_path" || ! -f "$request_path" ]]; then
+    echo "Existing feature request is missing or unsafe: $request_path" >&2
+    exit 2
+  fi
+
+  if [[ -L "$task_directory" || ! -d "$task_directory" ]]; then
+    echo "Existing feature task directory is missing or unsafe: $task_directory" >&2
+    exit 2
+  fi
+
+  if [[ -L "$assignment_path" || ! -f "$assignment_path" ]]; then
+    echo "Existing feature assignments are missing or unsafe: $assignment_path" >&2
+    exit 2
+  fi
+
+  assignment_keys=()
+
+  while IFS='|' read -r assignment_key assignment_repository_path assignment_task_path assignment_extra; do
+    if [[ -z "$assignment_key" || \
+      -z "$assignment_repository_path" || \
+      -z "$assignment_task_path" || \
+      -n "$assignment_extra" ]]
+    then
+      echo "Existing feature assignment is invalid: $assignment_path" >&2
+      exit 2
+    fi
+
+    repository_index=-1
+
+    for ((index = 0; index < ${#repository_keys[@]}; index++)); do
+      if [[ "${repository_keys[$index]}" == "$assignment_key" ]]; then
+        repository_index="$index"
+        break
+      fi
+    done
+
+    if [[ "$repository_index" -lt 0 ]]; then
+      echo "Existing feature has an unexpected repository assignment: $assignment_key" >&2
+      exit 2
+    fi
+
+    for existing_key in ${assignment_keys[@]+"${assignment_keys[@]}"}; do
+      if [[ "$existing_key" == "$assignment_key" ]]; then
+        echo "Existing feature has a duplicate repository assignment: $assignment_key" >&2
+        exit 2
+      fi
+    done
+
+    expected_task_path="$task_directory/$assignment_key.md"
+
+    if [[ "$assignment_repository_path" != "${repository_paths[$repository_index]}" ]]; then
+      echo "Existing feature repository path does not match the registry: $assignment_key" >&2
+      exit 2
+    fi
+
+    if [[ "$assignment_task_path" != "$expected_task_path" || \
+      -L "$expected_task_path" || \
+      ! -f "$expected_task_path" ]]
+    then
+      echo "Existing feature task is missing or unsafe: $expected_task_path" >&2
+      exit 2
+    fi
+
+    assignment_keys+=("$assignment_key")
+  done < "$assignment_path"
+
+  if [[ "${#assignment_keys[@]}" -ne "${#repository_keys[@]}" ]]; then
+    echo "Existing feature assignments do not match the requested repositories: $feature_id" >&2
+    exit 2
+  fi
+
+  trap - EXIT
+  printf '%s\n' "$request_path"
+  printf '%s\n' "$assignment_path"
+  exit 0
+fi
 
 staging_directory="$(mktemp -d "$coordinate_root/.repomux-feature.${feature_id}.XXXXXX")"
 
