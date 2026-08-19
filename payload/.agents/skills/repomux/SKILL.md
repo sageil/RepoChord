@@ -57,7 +57,17 @@ Include the repository path, task, shared contract, acceptance criteria, commit 
 
 ## Run repository agents
 
-Require no uncommitted changes in affected source repositories.
+By default, require no uncommitted changes in affected source repositories.
+
+The runner can continue with a dirty source repository when `--allow-dirty-source` is passed or `REPOMUX_ALLOW_DIRTY_SOURCE` is `true`.
+
+Treat `REPOMUX_ALLOW_DIRTY_SOURCE=true` as approval supplied when the user started the coordinator session.
+
+Otherwise, use `--allow-dirty-source` only after the user explicitly approves excluding the uncommitted changes from the repository-agent worktree.
+
+The option leaves the normal checkout unchanged and creates the repository-agent worktree from the committed `HEAD`.
+
+Never stash, reset, restore, clean, or copy the uncommitted source changes automatically.
 
 Run without an explicit run ID to generate one from the feature ID:
 

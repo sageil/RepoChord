@@ -490,6 +490,7 @@ grep -Fqx "5" "$attempts_capture"
 grep -Fqx "model=project-model-2" "$settings_capture"
 grep -Fqx "repository_agent_reasoning_effort=low" "$settings_capture"
 grep -Fqx "max_parallel=5" "$settings_capture"
+grep -Fqx "allow_dirty_source=false" "$settings_capture"
 
 HOME="$test_home" \
 PATH="$fake_bin:$PATH" \
@@ -502,12 +503,14 @@ FAKE_REPOMUX_SETTINGS_CAPTURE="$settings_capture" \
   --coordinator-reasoning-effort medium \
   --repository-agent-reasoning-effort xhigh \
   --max-parallel 7 \
-  --max-attempts 7
+  --max-attempts 7 \
+  --allow-dirty-source
 
 grep -Fqx "7" "$attempts_capture"
 grep -Fqx "model=session-model" "$settings_capture"
 grep -Fqx "repository_agent_reasoning_effort=xhigh" "$settings_capture"
 grep -Fqx "max_parallel=7" "$settings_capture"
+grep -Fqx "allow_dirty_source=true" "$settings_capture"
 grep -Fqx 'model_reasoning_effort="medium"' "$launcher_capture"
 
 test "$(

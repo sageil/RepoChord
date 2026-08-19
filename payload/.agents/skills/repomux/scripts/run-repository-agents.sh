@@ -3,7 +3,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: run-repository-agents.sh [--model <model>] [--reasoning-effort <effort>] [--profile <profile>] [--max-parallel <count>] [--max-attempts <count>] [--resume <run-id>] [--retry-blocked <repository-key>]... [<run-id>] <assignments-file>" >&2
+  echo "Usage: run-repository-agents.sh [--model <model>] [--reasoning-effort <effort>] [--profile <profile>] [--max-parallel <count>] [--max-attempts <count>] [--allow-dirty-source] [--resume <run-id>] [--retry-blocked <repository-key>]... [<run-id>] <assignments-file>" >&2
 }
 
 model=""
@@ -15,6 +15,7 @@ max_parallel=""
 max_parallel_explicit=false
 max_attempts=""
 max_attempts_explicit=false
+allow_dirty_source="${REPOMUX_ALLOW_DIRTY_SOURCE:-false}"
 resume=false
 run_id=""
 retry_blocked_keys=()
@@ -69,6 +70,10 @@ while [[ "$#" -gt 0 ]]; do
       max_attempts="$2"
       max_attempts_explicit=true
       shift 2
+      ;;
+    --allow-dirty-source)
+      allow_dirty_source=true
+      shift
       ;;
     --resume)
       if [[ "$#" -lt 2 || -z "$2" ]]; then
@@ -133,6 +138,15 @@ if [[ -n "$profile" && ! "$profile" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo "Profile contains unsupported characters: $profile" >&2
   exit 2
 fi
+
+case "$allow_dirty_source" in
+  true|false)
+    ;;
+  *)
+    echo "REPOMUX_ALLOW_DIRTY_SOURCE must be true or false: $allow_dirty_source" >&2
+    exit 2
+    ;;
+esac
 
 for required_command in codex git jq; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
@@ -498,9 +512,16 @@ for ((index = 0; index < repository_agent_count; index++)); do
     exit 2
   fi
 
-  if [[ -n "$(git -C "$canonical_repository_path" status --porcelain)" ]]; then
-    echo "Repository worktree is not clean: $repository_path" >&2
-    exit 2
+  source_repository_status="$(git -c core.fsmonitor=false \
+    -C "$canonical_repository_path" status --porcelain=v1 --untracked-files=all)"
+
+  if [[ -n "$source_repository_status" ]]; then
+    if [[ "$allow_dirty_source" == true ]]; then
+      echo "Warning: uncommitted changes are excluded from this run: $repository_path" >&2
+    else
+      echo "Repository worktree is not clean: $repository_path" >&2
+      exit 2
+    fi
   fi
 
   if ! git -C "$canonical_repository_path" config user.name >/dev/null; then

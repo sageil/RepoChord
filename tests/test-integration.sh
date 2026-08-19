@@ -126,6 +126,25 @@ do
   chmod +x "$hook_path"
 done
 
+printf 'uncommitted product change\n' >> "$web_repository/README.md"
+dirty_checkout_error="$temporary_root/dirty-checkout-error.txt"
+
+if HOME="$test_home" "$command_bin/repomux" integrate \
+  --project integration-test \
+  --run "$run_id" \
+  --dry-run \
+  >/dev/null \
+  2> "$dirty_checkout_error"
+then
+  echo "Integration unexpectedly accepted a dirty product checkout." >&2
+  exit 1
+fi
+
+grep -Fqx \
+  "Base branch checkout is not clean in web: $web_repository" \
+  "$dirty_checkout_error"
+git -C "$web_repository" restore README.md
+
 dry_run_output="$(
   HOME="$test_home" \
   "$command_bin/repomux" integrate \

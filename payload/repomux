@@ -6,7 +6,7 @@ usage() {
   cat >&2 <<'EOF'
 Usage:
   repomux init -p <name> [-c <path>] [--create-coordinate] [--model <model>] [--coordinator-reasoning-effort <effort>] [--repository-agent-reasoning-effort <effort>] [--max-parallel <count>] -r <key=path>...
-  repomux [start] [-p <name>] [-r <key>]... [--model <model>] [--coordinator-reasoning-effort <effort>] [--repository-agent-reasoning-effort <effort>] [--max-parallel <count>] [--max-attempts <count>] [-- <codex-argument>...]
+  repomux [start] [-p <name>] [-r <key>]... [--model <model>] [--coordinator-reasoning-effort <effort>] [--repository-agent-reasoning-effort <effort>] [--max-parallel <count>] [--max-attempts <count>] [--allow-dirty-source] [-- <codex-argument>...]
   repomux config get [-p <name>] <model|coordinator-reasoning-effort|repository-agent-reasoning-effort|max-parallel|max-attempts>
   repomux config set [-p <name>] <model|coordinator-reasoning-effort|repository-agent-reasoning-effort|max-parallel|max-attempts> <value>
   repomux list
@@ -1340,6 +1340,7 @@ run_start() {
   local requested_repository_agent_reasoning_effort=""
   local requested_max_parallel=""
   local requested_max_attempts=""
+  local allow_dirty_source=false
   local effective_model
   local effective_coordinator_reasoning_effort
   local effective_repository_agent_reasoning_effort
@@ -1383,6 +1384,10 @@ run_start() {
 
         requested_max_attempts="$2"
         shift 2
+        ;;
+      --allow-dirty-source)
+        allow_dirty_source=true
+        shift
         ;;
       --model)
         if [[ "$#" -lt 2 || -z "$2" ]]; then
@@ -1522,6 +1527,7 @@ run_start() {
   export REPOMUX_MODEL="$effective_model"
   export REPOMUX_MAX_PARALLEL="$effective_max_parallel"
   export REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT="$effective_repository_agent_reasoning_effort"
+  export REPOMUX_ALLOW_DIRTY_SOURCE="$allow_dirty_source"
   if [[ "${#codex_arguments[@]}" -gt 0 ]]; then
     exec codex "${launch_arguments[@]}" "${codex_arguments[@]}"
   fi
