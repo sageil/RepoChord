@@ -546,10 +546,9 @@ write_complete_report >"$report_stage"
 mv "$report_stage" "$report_path"
 report_stage=""
 
-echo "RepoMux run: $overall_status"
-echo "Feature: $feature_id"
-echo "Run: $run_id"
-echo "Pushed: no | Integrated: $integrated_list | Incomplete: $incomplete_list"
+echo "RepoMux run: $overall_status | feature $feature_id | run $run_id | pushed no | integrated $integrated_list | incomplete $incomplete_list"
+
+repository_receipt="Repositories:"
 
 for ((index = 0; index < repository_count; index++)); do
   repository_key="${repository_keys[$index]}"
@@ -558,32 +557,32 @@ for ((index = 0; index < repository_count; index++)); do
   integration_state="${integration_states[$index]}"
 
   if [[ "$repository_status" == "missing" ]]; then
-    echo "$repository_key: missing | commit unavailable | integration unavailable | blockers result missing"
-    echo "  Tokens: unavailable"
+    repository_receipt+=" $repository_key { status missing | commit unavailable | integration unavailable | blockers result missing | tokens unavailable };"
     continue
   fi
 
   commit="$(jq -r '.commit // "unavailable"' "$result_path")"
   blockers="$(inline_string_list "$result_path" '.blockers' 'none')"
-  echo "$repository_key: $repository_status | commit $commit | integration $integration_state | blockers $blockers"
 
   if jq -e '.execution.usage == null' "$result_path" >/dev/null; then
-    echo "  Tokens: unavailable"
+    token_receipt="unavailable"
   else
     input_tokens="$(jq -r '.execution.usage.input_tokens' "$result_path")"
     cached_input_tokens="$(jq -r '.execution.usage.cached_input_tokens' "$result_path")"
     output_tokens="$(jq -r '.execution.usage.output_tokens' "$result_path")"
     reasoning_output_tokens="$(jq -r '.execution.usage.reasoning_output_tokens' "$result_path")"
-    echo "  Tokens: input $input_tokens | cached input $cached_input_tokens | output $output_tokens | reasoning output $reasoning_output_tokens"
+    token_receipt="input $input_tokens, cached input $cached_input_tokens, output $output_tokens, reasoning output $reasoning_output_tokens"
   fi
+
+  repository_receipt+=" $repository_key { status $repository_status | commit $commit | integration $integration_state | blockers $blockers | tokens $token_receipt };"
 done
 
-echo "Complete report: $report_path"
+echo "${repository_receipt%;}"
 
 if [[ "$overall_status" == "completed" ]]; then
-  echo "Next: repomux integrate --run $run_id --dry-run"
-  echo "Then: repomux integrate --run $run_id"
+  echo "Complete report: $report_path | Next: repomux integrate --run $run_id --dry-run | Then: repomux integrate --run $run_id"
   exit 0
 fi
 
+echo "Complete report: $report_path"
 exit 1
