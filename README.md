@@ -84,23 +84,17 @@ cd /work/acme-commerce-coordinate
 repomux init \
   -p acme-commerce \
   -c "$PWD" \
-  --model gpt-5.6-terra \
-  --max-parallel 2 \
+  --model gpt-5.6-luna \
+  --max-parallel 4 \
   -r "orders-api=$PWD/../acme-orders-api" \
   -r "storefront=$PWD/../acme-storefront"
 ```
-
-The `--model` and `--max-parallel` options are project settings.
-Omit either option to use its installation default.
 
 The short options are:
 
 - `-p` for `--project`.
 - `-c` for `--coordinate`.
 - `-r` for `--repository`.
-
-The shell expands `$PWD` or `$(pwd)` before RepoMux receives the arguments.
-Quote an argument when its path can contain spaces.
 
 If the coordination repository does not exist, let RepoMux create it:
 
@@ -159,7 +153,6 @@ $repomux Add customer order cancellation to orders-api and storefront so custome
 You do not need a requirements file or feature ID.
 RepoMux creates one from the feature title, such as `customer-order-cancellation-a31f7c`.
 It also creates a unique run ID, such as `customer-order-cancellation-a31f7c-run-k82mqp`.
-The six-character suffixes will differ for each generated ID.
 
 The coordinator presents the complete contract and waits for your approval before it creates or edits the feature files.
 This contract approval is separate from the later approval required to start repository agents.
@@ -196,13 +189,12 @@ Your original product repository checkout remains unchanged until you run the in
 
 ## Understand token usage
 
-RepoMux limits growth of the coordinator context by running each repository assignment in a separate ephemeral `codex exec` session.
+RepoMux saves coordinator tokens by running each repository assignment in a separate ephemeral `codex exec` session.
 Each repository agent receives its own task and repository context instead of the coordinator conversation or another repository's implementation details.
-After the repository agents finish, the coordinator reads their structured result files instead of their command logs, source files, diffs, or intermediate output.
+RepoMux keeps the repository agents' event streams, command logs, source excerpts, diffs, and intermediate output out of the coordinator context.
+After the repository agents finish, the coordinator reads their compact structured result files and verifies the recorded repository state.
 
-This separation does not guarantee lower total token use.
-The coordinator and every repository-agent attempt use tokens independently, and retries add more usage.
-Parallel repository agents reduce elapsed time, not token use.
+This design also reduces total workflow token use compared with the same repository-agent work followed by a coordinator reading the full repository-agent output.
 
 Each repository result records cumulative usage for all attempts under `execution.usage`.
 Read the usage for one repository with:
@@ -290,8 +282,6 @@ repomux validate --project acme-commerce
 ```
 
 ## Configure repository agents
-
-RepoMux allows three attempts per repository by default.
 
 The installation also sets the default repository-agent model and maximum concurrency.
 
