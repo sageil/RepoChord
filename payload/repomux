@@ -1,0 +1,1233 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  repomux init -p <name> [-c <path>] [--create-coordinate] -r <key=path>...
+  repomux [start] [-p <name>] [-r <key>]... [--max-attempts <count>] [-- <codex-argument>...]
+  repomux config get [-p <name>] max-attempts
+  repomux config set [-p <name>] max-attempts <count>
+  repomux list
+  repomux validate [-p <name> | -c <path>]
+  repomux integrate [-p <name>] --run <run-id> [--dry-run]
+  repomux cleanup [-p <name>] --run <run-id> [-r <key>]... [--force]
+EOF
+}
+
+fail() {
+  echo "$1" >&2
+  exit "${2:-1}"
+}
+
+require_commands() {
+  local required_command
+
+  for required_command in "$@"; do
+    if ! command -v "$required_command" >/dev/null 2>&1; then
+      fail "Required command is not installed: $required_command" 2
+    fi
+  done
+}
+
+initialize_locations() {
+  if [[ -n "${REPOMUX_DATA_HOME:-}" ]]; then
+    repomux_data_directory="$REPOMUX_DATA_HOME"
+  elif [[ -n "${XDG_DATA_HOME:-}" ]]; then
+    repomux_data_directory="$XDG_DATA_HOME/repomux"
+  elif [[ -n "${HOME:-}" ]]; then
+    repomux_data_directory="$HOME/.local/share/repomux"
+  else
+    fail "HOME, XDG_DATA_HOME, and REPOMUX_DATA_HOME are unset." 2
+  fi
+
+  if [[ -n "${REPOMUX_CONFIG_HOME:-}" ]]; then
+    repomux_config_directory="$REPOMUX_CONFIG_HOME"
+  elif [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
+    repomux_config_directory="$XDG_CONFIG_HOME/repomux"
+  elif [[ -n "${HOME:-}" ]]; then
+    repomux_config_directory="$HOME/.config/repomux"
+  else
+    fail "HOME, XDG_CONFIG_HOME, and REPOMUX_CONFIG_HOME are unset." 2
+  fi
+
+  if [[ "$repomux_data_directory" != /* ]]; then
+    fail "RepoMux data directory must be absolute: $repomux_data_directory" 2
+  fi
+
+  if [[ "$repomux_config_directory" != /* ]]; then
+    fail "RepoMux configuration directory must be absolute: $repomux_config_directory" 2
+  fi
+
+  source_skill="$repomux_data_directory/skill"
+  projects_registry="$repomux_config_directory/projects.json"
+}
+
+validate_project_name() {
+  local project_name="$1"
+
+  if [[ ! "$project_name" =~ ^[A-Za-z0-9._-]+$ || "$project_name" == "." || "$project_name" == ".." ]]; then
+    fail "Invalid project name: $project_name" 2
+  fi
+}
+
+validate_repository_key() {
+  local repository_key="$1"
+
+  if [[ ! "$repository_key" =~ ^[A-Za-z0-9._-]+$ ||
+    "$repository_key" == "." ||
+    "$repository_key" == ".." ||
+    "$repository_key" == .* ||
+    "$repository_key" == *. ||
+    "$repository_key" == *.lock ||
+    "$repository_key" == *..* ]]
+  then
+    fail "Invalid repository key: $repository_key" 2
+  fi
+}
+
+validate_max_attempts() {
+  local value="$1"
+
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ || "${#value}" -gt 9 ]]; then
+    fail "Maximum attempts must be a positive integer no greater than 999999999: $value" 2
+  fi
+}
+
+validate_safe_path_text() {
+  local path_value="$1"
+  local path_label="$2"
+
+  if [[ "$path_value" == *$'\n'* || "$path_value" == *$'\r'* || "$path_value" == *$'\t'* ]]; then
+    fail "$path_label contains an unsupported tab or newline: $path_value" 2
+  fi
+}
+
+validate_skill_directory() {
+  local skill_directory="$1"
+  local relative_path
+  local script_path
+  local schema_path
+  local required_files=(
+    "SKILL.md"
+    "agents/openai.yaml"
+    "assets/repository-agent-response.schema.json"
+    "assets/repository-agent-result.schema.json"
+    "references/file-formats.md"
+    "scripts/run-repository-agent.sh"
+    "scripts/run-repository-agents.sh"
+    "scripts/scaffold-feature.sh"
+    "scripts/integrate-run.sh"
+    "scripts/cleanup-worktrees.sh"
+    "scripts/git-guard.sh"
+  )
+
+  if [[ -L "$skill_directory" ]]; then
+    fail "Refusing to use a symbolic link as a RepoMux skill: $skill_directory"
+  fi
+
+  if [[ ! -d "$skill_directory" ]]; then
+    fail "RepoMux skill directory does not exist: $skill_directory"
+  fi
+
+  for relative_path in "${required_files[@]}"; do
+    if [[ ! -f "$skill_directory/$relative_path" ]]; then
+      fail "Required RepoMux skill file is missing: $relative_path"
+    fi
+  done
+
+  if ! grep -q '^name: repomux$' "$skill_directory/SKILL.md"; then
+    fail "RepoMux SKILL.md has the wrong skill name."
+  fi
+
+  for script_path in "$skill_directory"/scripts/*.sh; do
+    bash -n "$script_path"
+
+    if [[ ! -x "$script_path" ]]; then
+      fail "RepoMux skill script is not executable: $script_path"
+    fi
+  done
+
+  for schema_path in "$skill_directory"/assets/*.schema.json; do
+    jq empty "$schema_path"
+  done
+}
+
+validate_projects_registry() {
+  if [[ -L "$projects_registry" ]]; then
+    fail "Refusing to use a symbolic link as the RepoMux project registry: $projects_registry"
+  fi
+
+  if [[ ! -f "$projects_registry" ]]; then
+    fail "No RepoMux projects are registered. Run repomux init first." 2
+  fi
+
+  if ! jq -e '
+    .version == 1 and
+    ((.defaults // {maxAttempts: 3}) | type == "object") and
+    ((.defaults.maxAttempts // 3) | type == "number") and
+    ((.defaults.maxAttempts // 3) | floor == .) and
+    ((.defaults.maxAttempts // 3) >= 1) and
+    (.projects | type == "array") and
+    ([.projects[].name] | length == (unique | length)) and
+    ([.projects[].coordinate] | length == (unique | length)) and
+    all(.projects[];
+      (.name | type == "string") and
+      (.name | test("^[A-Za-z0-9._-]+$")) and
+      (.coordinate | type == "string") and
+      (.coordinate | startswith("/")) and
+      (.coordinate | test("[\\t\\r\\n]") | not) and
+      ((has("maxAttempts") | not) or
+        ((.maxAttempts | type == "number") and
+         (.maxAttempts | floor == .) and
+         (.maxAttempts >= 1)))
+    )
+  ' "$projects_registry" >/dev/null; then
+    fail "RepoMux project registry is invalid: $projects_registry"
+  fi
+}
+
+validate_repository_registry() {
+  local registry_path="$1"
+
+  if [[ -L "$registry_path" ]]; then
+    fail "Refusing to use a symbolic link as the repository registry: $registry_path"
+  fi
+
+  if [[ ! -f "$registry_path" ]]; then
+    fail "Repository registry does not exist: $registry_path"
+  fi
+
+  if ! jq -e '
+    .version == 1 and
+    (.repositories | type == "array") and
+    (.repositories | length > 0) and
+    ([.repositories[].key] | length == (unique | length)) and
+    ([.repositories[].path] | length == (unique | length)) and
+    all(.repositories[];
+      (.key | type == "string") and
+      (.key | test("^[A-Za-z0-9._-]+$")) and
+      (.path | type == "string") and
+      (.path | startswith("/")) and
+      (.path | test("[\\t\\r\\n]") | not)
+    )
+  ' "$registry_path" >/dev/null; then
+    fail "Repository registry is invalid: $registry_path"
+  fi
+}
+
+canonical_git_root() {
+  local input_path="$1"
+  local path_label="$2"
+  local canonical_path
+  local git_root
+
+  validate_safe_path_text "$input_path" "$path_label"
+
+  if [[ ! -d "$input_path" ]]; then
+    fail "$path_label does not exist: $input_path" 2
+  fi
+
+  canonical_path="$(cd -- "$input_path" && pwd -P)"
+
+  if ! git_root="$(git -C "$canonical_path" rev-parse --show-toplevel 2>/dev/null)"; then
+    fail "$path_label is not inside a Git repository: $input_path" 2
+  fi
+
+  git_root="$(cd -- "$git_root" && pwd -P)"
+
+  if [[ "$canonical_path" != "$git_root" ]]; then
+    fail "$path_label must be the Git repository root: $input_path" 2
+  fi
+
+  printf '%s\n' "$git_root"
+}
+
+validate_product_repository() {
+  local repository_path="$1"
+  local repository_root
+
+  repository_root="$(canonical_git_root "$repository_path" "Product repository path")"
+
+  if ! git -C "$repository_root" rev-parse --verify HEAD >/dev/null 2>&1; then
+    fail "Product repository has no initial commit: $repository_root" 2
+  fi
+
+  printf '%s\n' "$repository_root"
+}
+
+validate_project_files() {
+  local coordinate_path="$1"
+  local coordinate_root
+  local installed_skill
+  local registry_path
+  local repository_path
+  local canonical_repository_path
+
+  coordinate_root="$(canonical_git_root "$coordinate_path" "Coordination repository")"
+  installed_skill="$coordinate_root/.agents/skills/repomux"
+  registry_path="$coordinate_root/.repomux/repositories.json"
+
+  validate_skill_directory "$source_skill"
+  validate_skill_directory "$installed_skill"
+
+  if ! diff -qr "$source_skill" "$installed_skill" >/dev/null; then
+    fail "Installed project skill differs from the RepoMux installation: $installed_skill"
+  fi
+
+  validate_repository_registry "$registry_path"
+
+  while IFS= read -r repository_path; do
+    canonical_repository_path="$(validate_product_repository "$repository_path")"
+
+    if [[ "$repository_path" != "$canonical_repository_path" ]]; then
+      fail "Registered repository path is not canonical: $repository_path"
+    fi
+
+    if [[ "$canonical_repository_path" == "$coordinate_root" ]]; then
+      fail "A product repository cannot be the coordination repository: $repository_path"
+    fi
+  done < <(jq -r '.repositories[].path' "$registry_path")
+
+  validated_coordinate_root="$coordinate_root"
+  validated_repository_registry="$registry_path"
+}
+
+path_is_within() {
+  local candidate="$1"
+  local root="$2"
+
+  [[ "$candidate" == "$root" || "$candidate" == "$root/"* ]]
+}
+
+resolve_project() {
+  local requested_project="$1"
+  local current_directory
+  local current_git_root=""
+  local project_name
+  local coordinate_path
+  local registry_path
+  local project_count
+  local matching_names=()
+  local matching_coordinates=()
+
+  validate_projects_registry
+
+  if [[ -n "$requested_project" ]]; then
+    validate_project_name "$requested_project"
+    selected_coordinate="$(jq -r --arg name "$requested_project" '
+      [.projects[] | select(.name == $name)] |
+      if length == 1 then .[0].coordinate else "" end
+    ' "$projects_registry")"
+
+    if [[ -z "$selected_coordinate" ]]; then
+      fail "RepoMux project is not registered: $requested_project" 2
+    fi
+
+    selected_project="$requested_project"
+    return
+  fi
+
+  current_directory="$(pwd -P)"
+
+  if git_root_candidate="$(git -C "$current_directory" rev-parse --show-toplevel 2>/dev/null)"; then
+    current_git_root="$(cd -- "$git_root_candidate" && pwd -P)"
+  fi
+
+  while IFS=$'\t' read -r project_name coordinate_path; do
+    if path_is_within "$current_directory" "$coordinate_path"; then
+      matching_names+=("$project_name")
+      matching_coordinates+=("$coordinate_path")
+      continue
+    fi
+
+    registry_path="$coordinate_path/.repomux/repositories.json"
+
+    if [[ -n "$current_git_root" && -f "$registry_path" ]] &&
+      jq -e --arg path "$current_git_root" 'any(.repositories[]; .path == $path)' "$registry_path" >/dev/null 2>&1
+    then
+      matching_names+=("$project_name")
+      matching_coordinates+=("$coordinate_path")
+    fi
+  done < <(jq -r '.projects[] | [.name, .coordinate] | @tsv' "$projects_registry")
+
+  if [[ "${#matching_names[@]}" -eq 1 ]]; then
+    selected_project="${matching_names[0]}"
+    selected_coordinate="${matching_coordinates[0]}"
+    return
+  fi
+
+  if [[ "${#matching_names[@]}" -gt 1 ]]; then
+    echo "The current repository belongs to more than one RepoMux project." >&2
+    printf '  %s\n' "${matching_names[@]}" >&2
+    fail "Use --project <name> to select one project." 2
+  fi
+
+  project_count="$(jq '.projects | length' "$projects_registry")"
+
+  if [[ "$project_count" -eq 1 ]]; then
+    selected_project="$(jq -r '.projects[0].name' "$projects_registry")"
+    selected_coordinate="$(jq -r '.projects[0].coordinate' "$projects_registry")"
+    return
+  fi
+
+  echo "RepoMux cannot select a project from the current directory." >&2
+  echo "Registered projects:" >&2
+  jq -r '.projects[].name | "  " + .' "$projects_registry" >&2
+  fail "Use --project <name> to select one project." 2
+}
+
+resolve_project_max_attempts() {
+  local project_name="$1"
+
+  jq -r --arg name "$project_name" '
+    (.defaults.maxAttempts // 3) as $default |
+    ([.projects[] | select(.name == $name)][0].maxAttempts // $default)
+  ' "$projects_registry"
+}
+
+prepare_coordinate_path() {
+  local requested_path="$1"
+  local create_coordinate="$2"
+  local canonical_path
+  local coordinate_parent
+  local coordinate_name
+  local git_root
+
+  validate_safe_path_text "$requested_path" "Coordination repository path"
+
+  if [[ -e "$requested_path" && ! -d "$requested_path" ]]; then
+    fail "Coordination repository path is not a directory: $requested_path" 2
+  fi
+
+  if [[ -d "$requested_path" ]]; then
+    canonical_path="$(cd -- "$requested_path" && pwd -P)"
+
+    if git_root="$(git -C "$canonical_path" rev-parse --show-toplevel 2>/dev/null)"; then
+      git_root="$(cd -- "$git_root" && pwd -P)"
+
+      if [[ "$canonical_path" != "$git_root" ]]; then
+        fail "Coordination repository path must be the Git repository root: $requested_path" 2
+      fi
+
+      prepared_coordinate_path="$git_root"
+      coordinate_requires_git_init=false
+      return
+    fi
+
+    if [[ "$create_coordinate" != true ]]; then
+      fail "Coordination repository path is not a Git repository. Use --create-coordinate: $requested_path" 2
+    fi
+
+    if [[ -n "$(find "$canonical_path" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+      fail "Refusing to initialize a nonempty coordination repository: $canonical_path" 2
+    fi
+
+    prepared_coordinate_path="$canonical_path"
+    coordinate_requires_git_init=true
+    return
+  fi
+
+  if [[ "$create_coordinate" != true ]]; then
+    fail "Coordination repository path does not exist. Use --create-coordinate: $requested_path" 2
+  fi
+
+  coordinate_parent="$(dirname -- "$requested_path")"
+  coordinate_name="$(basename -- "$requested_path")"
+
+  if [[ ! -d "$coordinate_parent" ]]; then
+    fail "Coordination repository parent does not exist: $coordinate_parent" 2
+  fi
+
+  coordinate_parent="$(cd -- "$coordinate_parent" && pwd -P)"
+
+  if [[ "$coordinate_name" == "." || "$coordinate_name" == ".." || -z "$coordinate_name" ]]; then
+    fail "Invalid coordination repository directory name: $coordinate_name" 2
+  fi
+
+  prepared_coordinate_path="$coordinate_parent/$coordinate_name"
+  coordinate_requires_git_init=true
+}
+
+run_init() {
+  local project_name=""
+  local coordinate_path="$PWD"
+  local create_coordinate=false
+  local repository_arguments=()
+  local repository_keys=()
+  local repository_paths=()
+  local repository_argument
+  local repository_key
+  local repository_path
+  local canonical_repository_path
+  local existing_key
+  local existing_path
+  local coordinate_root
+  local destination_skill
+  local registry_path
+  local existing_coordinate
+  local existing_project
+  temporary_repository_registry=""
+  temporary_projects_registry=""
+  skill_stage=""
+  registry_stage=""
+  projects_stage=""
+
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      -p|--project)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        project_name="$2"
+        shift 2
+        ;;
+      -c|--coordinate)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        coordinate_path="$2"
+        shift 2
+        ;;
+      --create-coordinate)
+        create_coordinate=true
+        shift
+        ;;
+      -r|--repository)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        repository_arguments+=("$2")
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        fail "Unknown init argument: $1" 2
+        ;;
+    esac
+  done
+
+  if [[ -z "$project_name" ]]; then
+    fail "RepoMux init requires --project <name>." 2
+  fi
+
+  validate_project_name "$project_name"
+  require_commands bash cp diff find git grep jq mktemp mv
+  validate_skill_directory "$source_skill"
+  prepare_coordinate_path "$coordinate_path" "$create_coordinate"
+  coordinate_root="$prepared_coordinate_path"
+
+  for repository_argument in ${repository_arguments[@]+"${repository_arguments[@]}"}; do
+    if [[ "$repository_argument" != *=* ]]; then
+      fail "Invalid repository argument. Expected key=path: $repository_argument" 2
+    fi
+
+    repository_key="${repository_argument%%=*}"
+    repository_path="${repository_argument#*=}"
+    validate_repository_key "$repository_key"
+    canonical_repository_path="$(validate_product_repository "$repository_path")"
+
+    if [[ "$canonical_repository_path" == "$coordinate_root" ]]; then
+      fail "A product repository cannot be the coordination repository: $canonical_repository_path" 2
+    fi
+
+    for existing_key in ${repository_keys[@]+"${repository_keys[@]}"}; do
+      if [[ "$existing_key" == "$repository_key" ]]; then
+        fail "Duplicate repository key: $repository_key" 2
+      fi
+    done
+
+    for existing_path in ${repository_paths[@]+"${repository_paths[@]}"}; do
+      if [[ "$existing_path" == "$canonical_repository_path" ]]; then
+        fail "Duplicate canonical repository path: $canonical_repository_path" 2
+      fi
+    done
+
+    repository_keys+=("$repository_key")
+    repository_paths+=("$canonical_repository_path")
+  done
+
+  destination_skill="$coordinate_root/.agents/skills/repomux"
+  registry_path="$coordinate_root/.repomux/repositories.json"
+
+  if [[ -L "$destination_skill" ]]; then
+    fail "Refusing to use a symbolic link as the project skill: $destination_skill"
+  fi
+
+  if [[ -L "$registry_path" ]]; then
+    fail "Refusing to use a symbolic link as the repository registry: $registry_path"
+  fi
+
+  if [[ "${#repository_keys[@]}" -eq 0 && ! -f "$registry_path" ]]; then
+    fail "RepoMux init requires at least one --repository option for a new project." 2
+  fi
+
+  temporary_repository_registry="$(mktemp "${TMPDIR:-/tmp}/repomux-repositories.XXXXXX")"
+  temporary_projects_registry="$(mktemp "${TMPDIR:-/tmp}/repomux-projects.XXXXXX")"
+
+  cleanup_init() {
+    rm -f -- "$temporary_repository_registry" "$temporary_projects_registry"
+
+    if [[ -n "$skill_stage" ]]; then
+      rm -rf -- "$skill_stage"
+    fi
+
+    if [[ -n "$registry_stage" ]]; then
+      rm -f -- "$registry_stage"
+    fi
+
+    if [[ -n "$projects_stage" ]]; then
+      rm -f -- "$projects_stage"
+    fi
+  }
+
+  trap cleanup_init EXIT
+
+  if [[ "${#repository_keys[@]}" -gt 0 ]]; then
+    for ((repository_index = 0; repository_index < ${#repository_keys[@]}; repository_index++)); do
+      jq -n \
+        --arg key "${repository_keys[$repository_index]}" \
+        --arg path "${repository_paths[$repository_index]}" \
+        '{key: $key, path: $path}'
+    done | jq -s '{version: 1, repositories: .}' > "$temporary_repository_registry"
+
+    if [[ -e "$registry_path" ]] && ! diff -q "$temporary_repository_registry" "$registry_path" >/dev/null; then
+      fail "Existing repository registry differs from the requested registry: $registry_path"
+    fi
+  else
+    cp "$registry_path" "$temporary_repository_registry"
+  fi
+
+  if [[ -e "$destination_skill" ]] && ! diff -qr "$source_skill" "$destination_skill" >/dev/null; then
+    fail "Installed project skill differs from RepoMux: $destination_skill"
+  fi
+
+  for expected_directory in \
+    "$coordinate_root/.agents" \
+    "$coordinate_root/.agents/skills" \
+    "$coordinate_root/.repomux" \
+    "$coordinate_root/.repomux/results" \
+    "$coordinate_root/.repomux/worktrees" \
+    "$coordinate_root/requests" \
+    "$coordinate_root/tasks"
+  do
+    if [[ -L "$expected_directory" ]]; then
+      fail "Refusing to use a symbolic link as a project directory: $expected_directory"
+    fi
+
+    if [[ -e "$expected_directory" && ! -d "$expected_directory" ]]; then
+      fail "Project directory path contains a non-directory: $expected_directory"
+    fi
+  done
+
+  if [[ -e "$repomux_config_directory" && ! -d "$repomux_config_directory" ]]; then
+    fail "RepoMux configuration path is not a directory: $repomux_config_directory"
+  fi
+
+  if [[ -L "$projects_registry" ]]; then
+    fail "Refusing to use a symbolic link as the project registry: $projects_registry"
+  fi
+
+  if [[ -e "$projects_registry" && ! -f "$projects_registry" ]]; then
+    fail "RepoMux project registry is not a regular file: $projects_registry"
+  fi
+
+  if [[ -f "$projects_registry" ]]; then
+    validate_projects_registry
+    existing_coordinate="$(jq -r --arg name "$project_name" '
+      [.projects[] | select(.name == $name)] |
+      if length == 1 then .[0].coordinate else "" end
+    ' "$projects_registry")"
+    existing_project="$(jq -r --arg coordinate "$coordinate_root" '
+      [.projects[] | select(.coordinate == $coordinate)] |
+      if length == 1 then .[0].name else "" end
+    ' "$projects_registry")"
+
+    if [[ -n "$existing_coordinate" && "$existing_coordinate" != "$coordinate_root" ]]; then
+      fail "Project name is already registered to another coordination repository: $project_name"
+    fi
+
+    if [[ -n "$existing_project" && "$existing_project" != "$project_name" ]]; then
+      fail "Coordination repository is already registered as another project: $existing_project"
+    fi
+
+    jq \
+      --arg name "$project_name" \
+      --arg coordinate "$coordinate_root" \
+      '
+        .defaults //= {maxAttempts: 3} |
+        if any(.projects[]; .name == $name) then
+          .
+        else
+          .projects += [{name: $name, coordinate: $coordinate}]
+        end |
+        .projects |= sort_by(.name)
+      ' \
+      "$projects_registry" > "$temporary_projects_registry"
+  else
+    jq -n \
+      --arg name "$project_name" \
+      --arg coordinate "$coordinate_root" \
+      '{
+        version: 1,
+        defaults: {maxAttempts: 3},
+        projects: [{name: $name, coordinate: $coordinate}]
+      }' \
+      > "$temporary_projects_registry"
+  fi
+
+  if [[ "$coordinate_requires_git_init" == true ]]; then
+    mkdir -p "$coordinate_root"
+    git -C "$coordinate_root" init -q
+  fi
+
+  mkdir -p \
+    "$coordinate_root/.agents/skills" \
+    "$coordinate_root/.repomux/results" \
+    "$coordinate_root/.repomux/worktrees" \
+    "$coordinate_root/requests" \
+    "$coordinate_root/tasks"
+
+  if [[ ! -e "$destination_skill" ]]; then
+    skill_stage="$(mktemp -d "$coordinate_root/.agents/skills/.repomux.XXXXXX")"
+    cp -R "$source_skill/." "$skill_stage/"
+    chmod +x "$skill_stage"/scripts/*.sh
+    validate_skill_directory "$skill_stage"
+    mv -- "$skill_stage" "$destination_skill"
+    skill_stage=""
+  fi
+
+  chmod +x "$destination_skill"/scripts/*.sh
+
+  if [[ ! -e "$coordinate_root/.repomux/results/.gitignore" ]]; then
+    printf '*\n!.gitignore\n' > "$coordinate_root/.repomux/results/.gitignore"
+  fi
+
+  if [[ ! -e "$coordinate_root/.repomux/worktrees/.gitignore" ]]; then
+    printf '*\n!.gitignore\n' > "$coordinate_root/.repomux/worktrees/.gitignore"
+  fi
+
+  if [[ ! -e "$registry_path" ]]; then
+    registry_stage="$(mktemp "$coordinate_root/.repomux/.repositories.XXXXXX")"
+    cp "$temporary_repository_registry" "$registry_stage"
+    mv -- "$registry_stage" "$registry_path"
+    registry_stage=""
+  fi
+
+  mkdir -p "$repomux_config_directory"
+
+  if [[ ! -f "$projects_registry" ]] || ! diff -q "$temporary_projects_registry" "$projects_registry" >/dev/null; then
+    projects_stage="$(mktemp "$repomux_config_directory/.projects.XXXXXX")"
+    cp "$temporary_projects_registry" "$projects_stage"
+    mv -- "$projects_stage" "$projects_registry"
+    projects_stage=""
+  fi
+
+  validate_project_files "$coordinate_root"
+  validate_projects_registry
+
+  echo "RepoMux project initialized: $project_name"
+  echo "Coordination repository: $coordinate_root"
+  echo "Repository registry: $registry_path"
+  echo "Skill: $destination_skill"
+}
+
+run_list() {
+  require_commands jq
+  validate_projects_registry
+  printf 'PROJECT\tCOORDINATE\n'
+  jq -r '.projects[] | [.name, .coordinate] | @tsv' "$projects_registry"
+}
+
+run_config() {
+  local action=""
+  local requested_project=""
+  local setting_name=""
+  local setting_value=""
+  local configured_value
+  local registry_stage=""
+
+  if [[ "$#" -eq 0 ]]; then
+    usage
+    exit 2
+  fi
+
+  action="$1"
+  shift
+
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      -p|--project)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        requested_project="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  case "$action" in
+    get)
+      if [[ "$#" -ne 1 ]]; then
+        usage
+        exit 2
+      fi
+
+      setting_name="$1"
+      ;;
+    set)
+      if [[ "$#" -ne 2 ]]; then
+        usage
+        exit 2
+      fi
+
+      setting_name="$1"
+      setting_value="$2"
+      ;;
+    *)
+      fail "Unknown config action: $action" 2
+      ;;
+  esac
+
+  if [[ "$setting_name" != "max-attempts" ]]; then
+    fail "Unknown RepoMux setting: $setting_name" 2
+  fi
+
+  require_commands jq mktemp mv
+  resolve_project "$requested_project"
+
+  if [[ "$action" == "get" ]]; then
+    resolve_project_max_attempts "$selected_project"
+    return
+  fi
+
+  validate_max_attempts "$setting_value"
+  configured_value="$setting_value"
+  registry_stage="$(mktemp "$repomux_config_directory/.projects.XXXXXX")"
+
+  cleanup_config() {
+    if [[ -n "$registry_stage" ]]; then
+      rm -f -- "$registry_stage"
+    fi
+  }
+
+  trap cleanup_config EXIT
+
+  jq \
+    --arg name "$selected_project" \
+    --argjson max_attempts "$configured_value" \
+    '
+      .defaults //= {maxAttempts: 3} |
+      .projects |= map(
+        if .name == $name then
+          . + {maxAttempts: $max_attempts}
+        else
+          .
+        end
+      )
+    ' \
+    "$projects_registry" > "$registry_stage"
+
+  mv -- "$registry_stage" "$projects_registry"
+  registry_stage=""
+  validate_projects_registry
+  echo "RepoMux maximum attempts for $selected_project: $configured_value"
+  trap - EXIT
+}
+
+run_validate() {
+  local requested_project=""
+  local coordinate_path=""
+  local codex_interactive_help
+  local codex_exec_help
+  local required_flag
+
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      -p|--project)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        requested_project="$2"
+        shift 2
+        ;;
+      -c|--coordinate)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        coordinate_path="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        fail "Unknown validate argument: $1" 2
+        ;;
+    esac
+  done
+
+  if [[ -n "$requested_project" && -n "$coordinate_path" ]]; then
+    fail "Use either --project or --coordinate with validate, not both." 2
+  fi
+
+  require_commands bash codex diff git grep jq
+
+  if [[ -n "$coordinate_path" ]]; then
+    selected_project=""
+    selected_coordinate="$(canonical_git_root "$coordinate_path" "Coordination repository")"
+  else
+    resolve_project "$requested_project"
+  fi
+
+  validate_project_files "$selected_coordinate"
+
+  codex_interactive_help="$(codex --help 2>&1)"
+
+  for required_flag in --cd --add-dir --sandbox; do
+    if [[ "$codex_interactive_help" != *"$required_flag"* ]]; then
+      fail "Installed Codex CLI does not support: $required_flag"
+    fi
+  done
+
+  codex_exec_help="$(codex exec --help 2>&1)"
+
+  for required_flag in --cd --sandbox --ephemeral --json --model --profile --config --output-schema --output-last-message; do
+    if [[ "$codex_exec_help" != *"$required_flag"* ]]; then
+      fail "Installed Codex CLI does not support: $required_flag"
+    fi
+  done
+
+  if [[ -n "$selected_project" ]]; then
+    echo "RepoMux project validation passed: $selected_project"
+  else
+    echo "RepoMux coordination repository validation passed: $validated_coordinate_root"
+  fi
+}
+
+run_cleanup() {
+  local requested_project=""
+  local run_id=""
+  local force=false
+  local repository_keys=()
+  local cleanup_script
+  local cleanup_arguments=()
+
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      -p|--project)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        requested_project="$2"
+        shift 2
+        ;;
+      --run)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        run_id="$2"
+        shift 2
+        ;;
+      -r|--repository)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        validate_repository_key "$2"
+        repository_keys+=("$2")
+        shift 2
+        ;;
+      --force)
+        force=true
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        fail "Unknown cleanup argument: $1" 2
+        ;;
+    esac
+  done
+
+  if [[ -z "$run_id" || ! "$run_id" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    fail "RepoMux cleanup requires a valid --run <run-id>." 2
+  fi
+
+  require_commands bash git jq
+  resolve_project "$requested_project"
+  validate_project_files "$selected_coordinate"
+  cleanup_script="$validated_coordinate_root/.agents/skills/repomux/scripts/cleanup-worktrees.sh"
+
+  if [[ "$force" == true ]]; then
+    cleanup_arguments+=(--force)
+  fi
+
+  cleanup_arguments+=("$run_id")
+  if [[ "${#repository_keys[@]}" -gt 0 ]]; then
+    cleanup_arguments+=("${repository_keys[@]}")
+  fi
+  exec bash "$cleanup_script" "${cleanup_arguments[@]}"
+}
+
+run_integrate() {
+  local requested_project=""
+  local run_id=""
+  local dry_run=false
+  local integration_script
+  local integration_arguments=()
+
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      -p|--project)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        requested_project="$2"
+        shift 2
+        ;;
+      --run)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        run_id="$2"
+        shift 2
+        ;;
+      --dry-run)
+        dry_run=true
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        fail "Unknown integrate argument: $1" 2
+        ;;
+    esac
+  done
+
+  if [[ -z "$run_id" || \
+    ! "$run_id" =~ ^[A-Za-z0-9._-]+$ || \
+    "$run_id" == "." || \
+    "$run_id" == ".." ]]
+  then
+    fail "RepoMux integrate requires a valid --run <run-id>." 2
+  fi
+
+  require_commands bash diff git grep jq
+  resolve_project "$requested_project"
+  validate_project_files "$selected_coordinate"
+  integration_script="$validated_coordinate_root/.agents/skills/repomux/scripts/integrate-run.sh"
+
+  if [[ "$dry_run" == true ]]; then
+    integration_arguments+=(--dry-run)
+  fi
+
+  integration_arguments+=("$run_id")
+  exec bash "$integration_script" "${integration_arguments[@]}"
+}
+
+run_start() {
+  local requested_project=""
+  local requested_max_attempts=""
+  local effective_max_attempts
+  local repository_keys=()
+  local codex_arguments=()
+  local selected_keys=()
+  local selected_paths=()
+  local repository_key
+  local selected_key
+  local repository_path
+  local canonical_repository_path
+  local launch_arguments
+
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      -p|--project)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        requested_project="$2"
+        shift 2
+        ;;
+      -r|--repository)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        repository_keys+=("$2")
+        shift 2
+        ;;
+      --max-attempts)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        requested_max_attempts="$2"
+        shift 2
+        ;;
+      --)
+        shift
+        codex_arguments=("$@")
+        break
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        fail "Unknown start argument: $1. Put Codex arguments after --." 2
+        ;;
+    esac
+  done
+
+  require_commands bash codex diff git grep jq
+  resolve_project "$requested_project"
+  validate_project_files "$selected_coordinate"
+
+  if [[ -n "$requested_max_attempts" ]]; then
+    validate_max_attempts "$requested_max_attempts"
+    effective_max_attempts="$requested_max_attempts"
+  else
+    effective_max_attempts="$(resolve_project_max_attempts "$selected_project")"
+    validate_max_attempts "$effective_max_attempts"
+  fi
+
+  if [[ "${#repository_keys[@]}" -eq 0 ]]; then
+    while IFS= read -r repository_key; do
+      repository_keys+=("$repository_key")
+    done < <(jq -r '.repositories[].key' "$validated_repository_registry")
+  fi
+
+  for repository_key in "${repository_keys[@]}"; do
+    validate_repository_key "$repository_key"
+
+    for selected_key in ${selected_keys[@]+"${selected_keys[@]}"}; do
+      if [[ "$selected_key" == "$repository_key" ]]; then
+        fail "Duplicate repository key: $repository_key" 2
+      fi
+    done
+
+    repository_path="$(jq -r --arg key "$repository_key" '
+      [.repositories[] | select(.key == $key)] |
+      if length == 1 then .[0].path else "" end
+    ' "$validated_repository_registry")"
+
+    if [[ -z "$repository_path" ]]; then
+      fail "Repository key is not registered: $repository_key" 2
+    fi
+
+    canonical_repository_path="$(validate_product_repository "$repository_path")"
+    selected_keys+=("$repository_key")
+    selected_paths+=("$canonical_repository_path")
+  done
+
+  launch_arguments=(-C "$validated_coordinate_root" --sandbox workspace-write)
+
+  for repository_path in "${selected_paths[@]}"; do
+    launch_arguments+=(--add-dir "$repository_path")
+  done
+
+  export REPOMUX_MAX_ATTEMPTS="$effective_max_attempts"
+  if [[ "${#codex_arguments[@]}" -gt 0 ]]; then
+    exec codex "${launch_arguments[@]}" "${codex_arguments[@]}"
+  fi
+
+  exec codex "${launch_arguments[@]}"
+}
+
+if [[ "$#" -gt 0 ]]; then
+  case "$1" in
+    -h|--help|help)
+      usage
+      exit 0
+      ;;
+  esac
+fi
+
+initialize_locations
+
+if [[ "$#" -eq 0 ]]; then
+  run_start
+  exit
+fi
+
+case "$1" in
+  init)
+    shift
+    run_init "$@"
+    ;;
+  config)
+    shift
+    run_config "$@"
+    ;;
+  list)
+    shift
+
+    if [[ "$#" -ne 0 ]]; then
+      fail "The list command does not accept arguments." 2
+    fi
+
+    run_list
+    ;;
+  validate)
+    shift
+    run_validate "$@"
+    ;;
+  cleanup)
+    shift
+    run_cleanup "$@"
+    ;;
+  integrate)
+    shift
+    run_integrate "$@"
+    ;;
+  start)
+    shift
+    run_start "$@"
+    ;;
+  *)
+    run_start "$@"
+    ;;
+esac

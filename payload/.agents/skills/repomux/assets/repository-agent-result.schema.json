@@ -1,0 +1,366 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "run_id": {
+      "type": "string"
+    },
+    "repository": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "blocked",
+        "failed"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "commit": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed",
+              "not_run"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "command",
+          "status",
+          "summary"
+        ]
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "reasoning_effort": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            null
+          ]
+        },
+        "profile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_repository_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "base_branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "base_commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worktree_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worktree_branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "input_tokens": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "cached_input_tokens": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "output_tokens": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "reasoning_output_tokens": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "input_tokens",
+                "cached_input_tokens",
+                "output_tokens",
+                "reasoning_output_tokens"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "starting_commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observed_head": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "starting_branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observed_branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "head_changed": {
+          "type": "boolean"
+        },
+        "worktree_clean": {
+          "type": "boolean"
+        },
+        "retry_safe": {
+          "type": "boolean"
+        },
+        "attempt_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "model",
+        "reasoning_effort",
+        "profile",
+        "source_repository_path",
+        "base_branch",
+        "base_commit",
+        "worktree_path",
+        "worktree_branch",
+        "usage",
+        "starting_commit",
+        "observed_head",
+        "starting_branch",
+        "observed_branch",
+        "head_changed",
+        "worktree_clean",
+        "retry_safe",
+        "attempt_count",
+        "max_attempts"
+      ]
+    }
+  },
+  "required": [
+    "run_id",
+    "repository",
+    "status",
+    "summary",
+    "commit",
+    "tests",
+    "risks",
+    "blockers",
+    "execution"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "completed"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "commit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tests": {
+            "minItems": 1,
+            "items": {
+              "properties": {
+                "status": {
+                  "const": "passed"
+                }
+              }
+            }
+          },
+          "blockers": {
+            "maxItems": 0
+          },
+          "execution": {
+            "properties": {
+              "head_changed": {
+                "const": true
+              },
+              "worktree_clean": {
+                "const": true
+              },
+              "retry_safe": {
+                "const": false
+              },
+              "source_repository_path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "base_branch": {
+                "type": "string",
+                "minLength": 1
+              },
+              "base_commit": {
+                "type": "string",
+                "minLength": 1
+              },
+              "worktree_path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "worktree_branch": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "failed"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "commit": {
+            "type": "null"
+          },
+          "execution": {
+            "properties": {
+              "head_changed": {
+                "const": false
+              },
+              "worktree_clean": {
+                "const": true
+              },
+              "retry_safe": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "blocked"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "commit": {
+            "type": "null"
+          },
+          "blockers": {
+            "minItems": 1
+          },
+          "execution": {
+            "properties": {
+              "retry_safe": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
