@@ -1,25 +1,21 @@
 # RepoMux
 
-RepoMux provides deterministic workflow controls around coordinated multi-repository coding agents.
+RepoMux helps you build one feature across several Git repositories.
 
-You describe one feature to a coordinator and the coordinator writes the shared requirements, assigns the work, and starts one isolated repository agent for each affected repository.
-RepoMux controls the worktree layout, validation, retries, commits, and completion report.
+You describe the feature once to the coordinator.
+It works out what each repository needs, sends each task to an isolated repository agent, and checks the results when the agents finish.
+
+| Term | Description |
+|---|---|
+| Coordinator | The agent you talk to. It plans the work across repositories, sends each task to the right agent, and checks the finished results. |
+| Repository agent | An agent that works on one repository in an isolated Git worktree. It makes the change, runs the tests, and reports back to the coordinator. |
 
 ![RepoMux coordinator dispatching isolated repository agents](assets/repomux-coordination.png)
 
-```text
-feature request
-    -> shared requirements and repository tasks
-    -> isolated repository branches and worktrees
-    -> validated local commits
-    -> user review and integration
-```
 
-RepoMux does not merge or push product repository changes during implementation.
-The `repomux integrate` command performs local fast-forwards only after you run it and confirm the operation.
-RepoMux never pushes changes.
+## Install RepoMux
 
-## Before you start
+### Requirements
 
 You need:
 
@@ -30,51 +26,58 @@ You need:
 
 Each product repository must be a Git repository with at least one commit.
 
-## Quick start
+### Default installation
 
-This example uses two product repositories, `acme-orders-api` and `acme-storefront`.
-It uses `acme-commerce-coordinate` for RepoMux configuration, requirements, repository tasks, results, and worktrees.
-
-### 1. Install RepoMux
-
-Clone this repository, then run:
+Clone this repository `git clone https://github.com/sageil/repomux.git`, switch directories, then run:
 
 ```bash
 ./install.sh
 ```
 
-The default installation creates:
+Unless you change them, RepoMux installs with these settings:
 
-```text
-~/.local/bin/repomux
-~/.local/share/repomux/skill/
-~/.config/repomux/projects.json
-```
+| Setting | Default |
+|---|---|
+| AI model | `gpt-5.6-terra` |
+| Coordinator reasoning effort | `medium` |
+| Repository-agent reasoning effort | `high` |
+| Parallel repository agents | `2` |
+| Maximum attempts | `3` |
+| Executable script | `~/.local/bin/repomux` |
+| Shared skill | `~/.local/share/repomux/skill` |
+| Project registry | `~/.config/repomux/projects.json` |
 
-It sets `gpt-5.6-terra` as the default repository-agent model and allows two repository agents to run at the same time.
+You can use `minimal`, `low`, `medium`, `high`, or `xhigh`.
+The selected model must support the effort you choose.
 
-Set different installation defaults when needed:
+
+### Custom installation options
+
+You can choose a different model, give the coordinator and repository agents different reasoning efforts, or run more repository agents at the same time:
 
 ```bash
 ./install.sh \
   --default-model openrouter/anthropic/claude-sonnet-4.5 \
+  --default-coordinator-reasoning-effort high \
+  --default-repository-agent-reasoning-effort medium \
   --default-max-parallel 4
 ```
 
-These values become the defaults for projects that do not have their own values.
+### Choose a custom installation directory
 
-If `~/.local/bin` is not in `PATH`, it prints the command you must add.
-
-You can also use a different command directory if needed:
+If `~/.local/bin` is not in `PATH`, the installer tells you how to add it.
+You can also install the command in another directory:
 
 ```bash
 ./install.sh --bin-dir /absolute/command/directory
 ```
 
-The cloned RepoMux repository is not required for normal use.
-Keep it when you want to inspect or update the installed files.
+## Set up your first AI workflow
 
-### 2. Initialize the project
+This walkthrough uses an API repository named `acme-orders-api` and a web repository named `acme-storefront`.
+RepoMux keeps the workflow files in a separate coordination repository named `acme-commerce-coordinate`.
+
+### 1. Initialize the project
 
 From an existing coordination repository:
 
@@ -107,10 +110,9 @@ repomux init \
   -r storefront=/work/acme-storefront
 ```
 
-`--create-coordinate` accepts an absent directory or an existing empty directory.
-RepoMux refuses to initialize a nonempty directory that is not already a Git repository.
+`--create-coordinate` accepts an absent directory or an existing empty directory. Initializing a nonempty directory that is not already a Git repository will fail.
 
-Initialization creates:
+Initialization creates the following structure:
 
 ```text
 acme-commerce-coordinate/
@@ -123,43 +125,33 @@ acme-commerce-coordinate/
 └── tasks/
 ```
 
-RepoMux also registers the project in `~/.config/repomux/projects.json`.
+### 2. Start the AI coordinator
 
-### 3. Start the coordinator
-
-Run RepoMux from the coordination repository or either registered product repository:
+From the coordination repository, run `repomux`.
+If you are somewhere else, use the project name when you start it:
 
 ```bash
 repomux
 ```
 
-RepoMux selects the project from the current directory and starts Codex with the `workspace-write` sandbox using your configured Codex permissions.
-
-You can also select the project by name from any directory:
-
 ```bash
 repomux --project acme-commerce
 ```
 
-### 4. Request a new feature
+### 3. Request a new feature
 
-Describe the behavior you want inside the Codex session.
-Use the repository keys from the initialization command, such as `orders-api` and `storefront`:
+Once the coordinator starts, describe the feature and name the repositories that need changes:
 
 ```text
 $repomux Add customer order cancellation to orders-api and storefront so customers can cancel an eligible order from the order-details page and see the updated status without reloading.
 ```
 
-You do not need a requirements file or feature ID.
-RepoMux creates one from the feature title, such as `customer-order-cancellation-a31f7c`.
-It also creates a unique run ID, such as `customer-order-cancellation-a31f7c-run-k82mqp`.
-
-The coordinator presents the complete contract and waits for your approval before it creates or edits the feature files.
-This contract approval is separate from the later approval required to start repository agents.
+Before it creates the feature files, the coordinator shows you the proposed requirements and waits for your approval.
 
 ## What RepoMux creates for a feature
 
-The coordinator writes the feature documents into its current checkout:
+After you approve the proposal, RepoMux turns the request into a feature ID, such as `customer-order-cancellation-a31f7c`.
+The coordinator then writes one request file and one task for each repository:
 
 ```text
 requests/customer-order-cancellation-a31f7c.md
@@ -168,11 +160,12 @@ tasks/customer-order-cancellation-a31f7c/storefront.md
 tasks/customer-order-cancellation-a31f7c/assignments.txt
 ```
 
-The request file contains the shared requirements and cross-repository contract.
-Each repository task contains the repository goal, relevant contract, acceptance criteria, commit message, and focused test commands.
-The assignments file connects each repository key and path to its task file.
+The request file describes the feature as a whole.
+Each repository task explains what that repository must change and how its agent must test the result.
+The assignments file connects those tasks to the registered repositories.
 
-For each product repository, `RepoMux` records the current branch and commit, then creates:
+When implementation starts, RepoMux creates a separate run ID, such as `customer-order-cancellation-a31f7c-run-k82mqp`.
+It records the current state of each product repository and gives each repository agent its own branch and worktree:
 
 ```text
 Branch:   repomux/<run-id>/<repository-key>
@@ -180,40 +173,10 @@ Worktree: <coordination-repository>/.repomux/worktrees/<run-id>/<repository-key>
 Result:   <coordination-repository>/.repomux/results/<run-id>/<repository-key>.json
 ```
 
-Every attempt for that repository uses the same worktree.
-The repository agent can edit the worktree but cannot write linked Git metadata.
-Network access follows the active Codex configuration and profile.
-RepoMux creates the local commit after the repository agent reports completion and the completion checks pass.
-A completed result requires a new matching commit, a clean worktree, at least one created test, all reported tests passed, and no blockers.
-Your original product repository checkout remains unchanged until you run the integration command or merge the RepoMux branch yourself.
+## Review and integrate the finished feature
 
-## Understand token usage
-
-RepoMux saves coordinator tokens by running each repository assignment in a separate ephemeral `codex exec` session.
-Each repository agent receives its own task and repository context instead of the coordinator conversation or another repository's implementation details.
-RepoMux keeps the repository agents' event streams, command logs, source excerpts, diffs, and intermediate output out of the coordinator context.
-After the repository agents finish, the coordinator reads their compact structured result files and verifies the recorded repository state.
-
-This design also reduces total workflow token use compared with the same repository-agent work followed by a coordinator reading the full repository-agent output.
-
-Each repository result records cumulative usage for all attempts under `execution.usage`.
-Read the usage for one repository with:
-
-```bash
-jq '.execution.usage' \
-  /work/acme-commerce-coordinate/.repomux/results/customer-order-cancellation-a31f7c-run-k82mqp/orders-api.json
-```
-
-The result contains `input_tokens`, `cached_input_tokens`, `output_tokens`, and `reasoning_output_tokens`.
-The value is `null` when no repository-agent attempt completed far enough to report usage.
-
-## Review and integrate a completed feature
-
-The coordinator reports the run ID when every affected repository is complete.
-The integration command requires the run manifest created by the current repository runner.
-Runs created before this manifest was added remain available for manual integration.
-
-Start with a dry run:
+When every repository agent has finished and the checks pass, RepoMux reports the run ID.
+Run a dry run first to see what RepoMux will change:
 
 ```bash
 repomux integrate \
@@ -222,12 +185,7 @@ repomux integrate \
   --dry-run
 ```
 
-The dry run validates every result, test, commit, base branch, and preserved worktree.
-It shows the feature documents, repository summaries, tests, branches, commits, and diff statistics.
-It exits with a nonzero status when the run cannot be integrated.
-It does not prompt or change files, commits, branches, worktrees, or RepoMux state.
-
-When the dry run passes, run the same command without `--dry-run`:
+If the plan looks correct, run the integration command without `--dry-run`:
 
 ```bash
 repomux integrate \
@@ -235,21 +193,8 @@ repomux integrate \
   --run customer-order-cancellation-a31f7c-run-k82mqp
 ```
 
-RepoMux repeats the preflight and shows the same plan.
-It then asks once for permission.
-
-After you confirm, RepoMux:
-
-1. Commits only the recorded request, repository tasks, and assignments file in the coordination repository.
-2. Fast-forwards each recorded product base branch to its completed RepoMux commit.
-3. Verifies every updated branch.
-4. Preserves the RepoMux feature branches and worktrees.
-
-RepoMux does not switch a product checkout that is on another branch.
-It stops before integration when a result is incomplete, a recorded feature document changed, a pending target branch checkout is dirty, or a base branch diverged.
-If integration stops after one repository was updated, correct the reported problem and run the same command again.
-The repeated command skips documents and repositories that are already integrated.
-The command never pushes changes.
+RepoMux asks for confirmation, commits the workflow documents, and fast-forwards each product branch to its completed feature commit.
+It keeps the feature branches and worktrees in place and never pushes changes.
 
 ## Use an existing requirements file
 
@@ -259,11 +204,11 @@ Start the coordinator, then name the existing feature ID and file in your prompt
 $repomux Implement COMMERCE-2197 in the orders-api and storefront repositories using the requirements in incoming/COMMERCE-2197.md.
 ```
 
-RepoMux keeps the supplied feature ID and creates the repository tasks from the existing requirements.
+RepoMux uses the feature ID `COMMERCE-2197` and creates the repository tasks from the existing requirements in `incoming/COMMERCE-2197.md`.
 
-## Control a coordinator session
+## Start a coordinator session
 
-Select a project, limit the writable repositories, and pass extra Codex options after `--`:
+Select a project and the writable repositories. You can pass extra Codex options after `--`:
 
 ```bash
 repomux \
@@ -281,28 +226,31 @@ repomux list
 repomux validate --project acme-commerce
 ```
 
-## Configure repository agents
+## Configure the coordinator and repository agents
 
-The installation also sets the default repository-agent model and maximum concurrency.
-
-Set project values during initialization:
+Most projects can use the installation defaults.
+If one project needs different settings, save them when you initialize it:
 
 ```bash
 repomux init \
-  --project acme-commerce \
-  --coordinate /work/acme-commerce-coordinate \
-  --model openrouter/anthropic/claude-sonnet-4.5 \
-  --max-parallel 4 \
-  --repository orders-api=/work/acme-orders-api \
-  --repository storefront=/work/acme-storefront
+    --project acme-commerce \
+    --coordinate /work/acme-commerce-coordinate \
+    --model openrouter/anthropic/claude-sonnet-4.5 \
+    --coordinator-reasoning-effort high \
+    --repository-agent-reasoning-effort medium \
+    --max-parallel 4 \
+    --repository orders-api=/work/acme-orders-api \
+    --repository storefront=/work/acme-storefront
 ```
 
-Re-running `repomux init` without `--model` or `--max-parallel` preserves existing project values.
+If you run `repomux init` again, RepoMux keeps every saved setting that you do not specify.
 
 Change project values later:
 
 ```bash
 repomux config set --project acme-commerce model gpt-5.6-terra
+repomux config set --project acme-commerce coordinator-reasoning-effort high
+repomux config set --project acme-commerce repository-agent-reasoning-effort medium
 repomux config set --project acme-commerce max-parallel 4
 repomux config set --project acme-commerce max-attempts 5
 ```
@@ -311,30 +259,31 @@ Read the effective project values:
 
 ```bash
 repomux config get --project acme-commerce model
+repomux config get --project acme-commerce coordinator-reasoning-effort
+repomux config get --project acme-commerce repository-agent-reasoning-effort
 repomux config get --project acme-commerce max-parallel
 repomux config get --project acme-commerce max-attempts
 ```
 
-Override the project values for one coordinator session:
+For a one-time change, pass the settings when you start the coordinator:
 
 ```bash
 repomux \
-  --project acme-commerce \
-  --model gpt-5.6-terra \
-  --max-parallel 2 \
-  --max-attempts 5
+    --project acme-commerce \
+    --model gpt-5.6-terra \
+    --coordinator-reasoning-effort high \
+    --repository-agent-reasoning-effort medium \
+    --max-parallel 2 \
+    --max-attempts 5
 ```
 
-For each setting, a session override takes precedence over the project value.
-The project value takes precedence over the installation default in `~/.config/repomux/projects.json`.
-The built-in fallbacks are `gpt-5.6-terra`, two parallel repository agents, and three attempts.
-
-Options before `--` configure repository agents.
-Codex coordinator options go after `--`.
+Settings passed at startup apply only to that session and override the saved project settings.
+If the project does not have a saved value, RepoMux uses the installation default.
 
 ## Resume an incomplete run
 
-RepoMux automatically starts another attempt after a failed or invalid attempt when the repository branch is unchanged and the configured limit permits it. The next attempt receives the previous result and continues in the same worktree. To resume a failed run with its existing run ID:
+If an attempt fails but the repository is still safe to continue, RepoMux tries again in the same worktree and gives the next attempt the previous result.
+If the run uses all available attempts, resume it with the same run ID:
 
 ```bash
 bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/run-repository-agents.sh \
@@ -342,9 +291,8 @@ bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/run-repositor
   /work/acme-commerce-coordinate/tasks/customer-order-cancellation-a31f7c/assignments.txt
 ```
 
-The script verifies and skips completed repositories.
-Increase `max-attempts` before resuming a failed repository that already used its configured limit.
-A blocked repository needs explicit approval because the result reports a blocker or RepoMux detected state that automatic repair must not overwrite.
+RepoMux skips repositories that already finished.
+A blocked repository is different: RepoMux waits for your approval because it found a problem that it must not change automatically.
 Retry one blocked repository with:
 
 ```bash
@@ -358,12 +306,9 @@ RepoMux preserves failed and blocked worktrees for review.
 
 ## Start another feature before integration
 
-A new feature gets a new feature ID, run ID, RepoMux branch, and worktree for each affected repository.
-The existing feature and its worktrees remain unchanged.
+A new feature gets a new feature ID, run ID, RepoMux branch, and worktree for each affected repository to avoid impacting existing features.
 The new worktree starts from the current `HEAD` of the normal product repository checkout.
-It does not automatically include changes from another unmerged RepoMux branch.
-Independent features can remain separate and be reviewed in any order.
-When a new feature depends on an unmerged RepoMux feature, the current workflow does not stack the new worktree on the earlier RepoMux commit automatically.
+If feature B depends on feature A, integrate feature A before you start feature B. RepoMux does not automatically include changes from an unintegrated feature in a new worktree.
 
 ## Clean up worktrees
 
@@ -380,7 +325,7 @@ repomux cleanup \
 ```
 
 Cleanup preserves the RepoMux branches and commits. It will refuse to remove a dirty worktree.
-Use `--force` only when you have reviewed the uncommitted work and explicitly want to remove it:
+Use `--force` only when you have reviewed the uncommitted work and explicitly want to remove/abandon it:
 
 ```bash
 repomux cleanup \
@@ -390,12 +335,11 @@ repomux cleanup \
   --force
 ```
 
-## Run the scripts directly
+## Troubleshooting & diagnostics
 
-The coordinator normally runs these scripts for you.
-Use them directly only for diagnosis or external automation.
+The coordinator normally runs these scripts for you. Use them directly only for diagnosis or external automation.
 
-Create files for a feature without an existing ID:
+Scaffold a new feature to create its requirements and related tasks:
 
 ```bash
 bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/scaffold-feature.sh \
@@ -415,38 +359,11 @@ bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/run-repositor
   /work/acme-commerce-coordinate/tasks/customer-order-cancellation-a31f7c/assignments.txt
 ```
 
-The script reads the project model, concurrency, and attempt settings from `~/.config/repomux/projects.json`.
-Use `--model`, `--max-parallel`, or `--max-attempts` on this command only for a direct run override.
-
 Pass an explicit run ID before the assignments file only when another system requires that exact ID.
-
-The built-in repository-agent fallbacks are:
-
-- Model: `gpt-5.6-terra`.
-- Maximum parallel repository agents: `2`.
-- Maximum attempts: `3`.
-- Reasoning effort: the selected model or profile default.
-
-Supported reasoning effort values are `minimal`, `low`, `medium`, `high`, and `xhigh`.
-Support for `xhigh` depends on the selected model.
-Use `--profile <name>` when repository agents need a named Codex profile.
-
-## Installation and storage reference
-
-The installed command is in `~/.local/bin`, the shared skill is in `~/.local/share/repomux`, and the user registry is in `~/.config/repomux` by default.
-`XDG_BIN_HOME`, `XDG_DATA_HOME`, and `XDG_CONFIG_HOME` change their corresponding base directories.
-`REPOMUX_DATA_HOME` and `REPOMUX_CONFIG_HOME` provide explicit RepoMux data and configuration directory overrides.
-
-The installer is safe to repeat when the installed command and skill match the package.
-Without default-setting arguments, it preserves existing installation defaults.
-An explicit `--default-model` or `--default-max-parallel` updates only that global default and preserves registered projects and project overrides.
-It stops when an installed command or skill differs because RepoMux has no destructive upgrade mode.
-Project initialization also stops instead of overwriting a changed project skill or repository registry.
-Review and reconcile local changes before replacing an installation or initialized project files.
 
 ## Workflow Screen Captures
 
-These captures show one complete feature workflow in timestamp order.
+These captures show one complete feature workflow in order.
 
 ### 1. Submit the feature request
 
@@ -454,11 +371,11 @@ Start RepoMux for the registered project and describe the cross-repository featu
 
 ![Submit a downloadable order receipt feature to the RepoMux coordinator](assets/workflow-screen-captures/workflow-2026-08-18-213931.png)
 
-### 2. Inspect the repositories and define the contract
+### 2. Inspect the repositories and define the requirements
 
-The coordinator verifies both repositories, inspects the existing API and web paths, and defines the shared receipt contract.
+The coordinator verifies both repositories, inspects the existing API and web paths, and defines the shared receipt requirements.
 
-![RepoMux inspecting the API and web repositories and defining the shared contract](assets/workflow-screen-captures/workflow-2026-08-18-214037.png)
+![RepoMux inspecting the API and web repositories and defining the shared requirements](assets/workflow-screen-captures/workflow-2026-08-18-214037.png)
 
 ### 3. Prepare the repository tasks
 
@@ -483,6 +400,7 @@ After both repository agents finish, the coordinator checks their structured res
 
 The completion report shows each repository status, test result, commit, worktree, branch, attempt count, and token usage.
 It also provides the dry-run and integration commands.
+See [Understand token usage](TOKEN-USAGE.md) for details about token isolation and repository-agent usage data.
 
 ![RepoMux completion report for the API and web repositories](assets/workflow-screen-captures/workflow-2026-08-18-214407.png)
 

@@ -9,6 +9,7 @@ usage() {
 model=""
 model_explicit=false
 reasoning_effort=""
+reasoning_effort_explicit=false
 profile=""
 max_parallel=""
 max_parallel_explicit=false
@@ -31,12 +32,13 @@ while [[ "$#" -gt 0 ]]; do
       shift 2
       ;;
     --reasoning-effort)
-      if [[ "$#" -lt 2 ]]; then
+      if [[ "$#" -lt 2 || -z "$2" ]]; then
         usage
         exit 2
       fi
 
       reasoning_effort="$2"
+      reasoning_effort_explicit=true
       shift 2
       ;;
     --profile)
@@ -132,15 +134,6 @@ if [[ -n "$profile" && ! "$profile" =~ ^[A-Za-z0-9._-]+$ ]]; then
   exit 2
 fi
 
-case "$reasoning_effort" in
-  ""|minimal|low|medium|high|xhigh)
-    ;;
-  *)
-    echo "Unsupported reasoning effort: $reasoning_effort" >&2
-    exit 2
-    ;;
-esac
-
 for required_command in codex git jq; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     echo "Required command is not installed: $required_command" >&2
@@ -178,6 +171,34 @@ projects_registry=""
 if [[ -n "$repomux_config_directory" ]]; then
   projects_registry="$repomux_config_directory/projects.json"
 fi
+
+if [[ "$reasoning_effort_explicit" != true ]]; then
+  if [[ -n "${REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT:-}" ]]; then
+    reasoning_effort="$REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT"
+  else
+    reasoning_effort="high"
+
+    if [[ -n "$projects_registry" && -f "$projects_registry" ]]; then
+      reasoning_effort="$(jq -er \
+        --arg coordinate "$coordinate_root" \
+        '
+          (.defaults.repositoryAgentReasoningEffort // "high") as $default |
+          [.projects[] | select(.coordinate == $coordinate)] |
+          if length == 1 then (.[0].repositoryAgentReasoningEffort // $default) else $default end
+        ' \
+        "$projects_registry")"
+    fi
+  fi
+fi
+
+case "$reasoning_effort" in
+  minimal|low|medium|high|xhigh)
+    ;;
+  *)
+    echo "Unsupported repository-agent reasoning effort: $reasoning_effort" >&2
+    exit 2
+    ;;
+esac
 
 if [[ "$model_explicit" != true ]]; then
   if [[ -n "${REPOMUX_MODEL:-}" ]]; then
@@ -667,11 +688,11 @@ else
   run_manifest_stage=""
 fi
 
-repository_agent_arguments=(--model "$model" --max-attempts "$max_attempts")
-
-if [[ -n "$reasoning_effort" ]]; then
-  repository_agent_arguments+=(--reasoning-effort "$reasoning_effort")
-fi
+repository_agent_arguments=(
+  --model "$model"
+  --reasoning-effort "$reasoning_effort"
+  --max-attempts "$max_attempts"
+)
 
 if [[ -n "$profile" ]]; then
   repository_agent_arguments+=(--profile "$profile")

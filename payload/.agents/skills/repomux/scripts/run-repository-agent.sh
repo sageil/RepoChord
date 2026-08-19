@@ -7,7 +7,7 @@ usage() {
 }
 
 model="gpt-5.6-terra"
-reasoning_effort=""
+reasoning_effort="${REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT:-high}"
 profile=""
 max_attempts="${REPOMUX_MAX_ATTEMPTS:-3}"
 resume=false
@@ -105,7 +105,7 @@ if [[ -n "$profile" && ! "$profile" =~ ^[A-Za-z0-9._-]+$ ]]; then
 fi
 
 case "$reasoning_effort" in
-  ""|minimal|low|medium|high|xhigh)
+  minimal|low|medium|high|xhigh)
     ;;
   *)
     echo "Unsupported reasoning effort: $reasoning_effort" >&2
@@ -750,9 +750,7 @@ while [[ "$attempt_count" -lt "$max_attempts" ]]; do
     codex_command+=(--profile "$profile")
   fi
 
-  if [[ -n "$reasoning_effort" ]]; then
-    codex_command+=(--config "model_reasoning_effort=\"$reasoning_effort\"")
-  fi
+  codex_command+=(--config "model_reasoning_effort=\"$reasoning_effort\"")
 
   codex_command+=(
     --output-schema "$response_schema_path"

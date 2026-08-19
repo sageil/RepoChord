@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [[ "$#" -eq 1 && "$1" == "--help" ]]; then
-  echo "--cd --add-dir --sandbox"
+  echo "--cd --add-dir --sandbox --config"
   exit 0
 fi
 
@@ -24,8 +24,9 @@ if [[ -n "${FAKE_REPOMUX_ATTEMPTS_CAPTURE:-}" ]]; then
 fi
 
 if [[ -n "${FAKE_REPOMUX_SETTINGS_CAPTURE:-}" ]]; then
-  printf 'model=%s\nmax_parallel=%s\n' \
+  printf 'model=%s\nrepository_agent_reasoning_effort=%s\nmax_parallel=%s\n' \
     "${REPOMUX_MODEL:-}" \
+    "${REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT:-}" \
     "${REPOMUX_MAX_PARALLEL:-}" \
     > "$FAKE_REPOMUX_SETTINGS_CAPTURE"
 fi

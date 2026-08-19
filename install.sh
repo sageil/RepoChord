@@ -3,13 +3,29 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: install.sh [--bin-dir <absolute-directory>] [--default-model <model>] [--default-max-parallel <count>]" >&2
+  echo "Usage: install.sh [--bin-dir <absolute-directory>] [--default-model <model>] [--default-coordinator-reasoning-effort <effort>] [--default-repository-agent-reasoning-effort <effort>] [--default-max-parallel <count>]" >&2
+}
+
+validate_reasoning_effort() {
+  local value="$1"
+
+  case "$value" in
+    minimal|low|medium|high|xhigh)
+      ;;
+    *)
+      echo "Reasoning effort must be one of minimal, low, medium, high, or xhigh: $value" >&2
+      exit 2
+      ;;
+  esac
 }
 
 validate_projects_registry_file() {
   local registry_path="$1"
 
   jq -e '
+    def valid_reasoning_effort:
+      . == "minimal" or . == "low" or . == "medium" or . == "high" or . == "xhigh";
+
     .version == 1 and
     ((.defaults // {}) | type == "object") and
     ((.defaults.maxAttempts // 3) | type == "number") and
@@ -19,6 +35,8 @@ validate_projects_registry_file() {
     ((.defaults.model // "gpt-5.6-terra") | type == "string") and
     ((.defaults.model // "gpt-5.6-terra") | length > 0) and
     ((.defaults.model // "gpt-5.6-terra") | test("[[:space:]]") | not) and
+    ((.defaults.coordinatorReasoningEffort // "medium") | valid_reasoning_effort) and
+    ((.defaults.repositoryAgentReasoningEffort // "high") | valid_reasoning_effort) and
     ((.defaults.maxParallel // 2) | type == "number") and
     ((.defaults.maxParallel // 2) | floor == .) and
     ((.defaults.maxParallel // 2) >= 1) and
@@ -41,6 +59,10 @@ validate_projects_registry_file() {
         ((.model | type == "string") and
          (.model | length > 0) and
          (.model | test("[[:space:]]") | not))) and
+      ((has("coordinatorReasoningEffort") | not) or
+        (.coordinatorReasoningEffort | valid_reasoning_effort)) and
+      ((has("repositoryAgentReasoningEffort") | not) or
+        (.repositoryAgentReasoningEffort | valid_reasoning_effort)) and
       ((has("maxParallel") | not) or
         ((.maxParallel | type == "number") and
          (.maxParallel | floor == .) and
@@ -53,6 +75,10 @@ validate_projects_registry_file() {
 bin_directory=""
 default_model="gpt-5.6-terra"
 default_model_explicit=false
+default_coordinator_reasoning_effort="medium"
+default_coordinator_reasoning_effort_explicit=false
+default_repository_agent_reasoning_effort="high"
+default_repository_agent_reasoning_effort_explicit=false
 default_max_parallel="2"
 default_max_parallel_explicit=false
 
@@ -75,6 +101,26 @@ while [[ "$#" -gt 0 ]]; do
 
       default_model="$2"
       default_model_explicit=true
+      shift 2
+      ;;
+    --default-coordinator-reasoning-effort)
+      if [[ "$#" -lt 2 || -z "$2" ]]; then
+        usage
+        exit 2
+      fi
+
+      default_coordinator_reasoning_effort="$2"
+      default_coordinator_reasoning_effort_explicit=true
+      shift 2
+      ;;
+    --default-repository-agent-reasoning-effort)
+      if [[ "$#" -lt 2 || -z "$2" ]]; then
+        usage
+        exit 2
+      fi
+
+      default_repository_agent_reasoning_effort="$2"
+      default_repository_agent_reasoning_effort_explicit=true
       shift 2
       ;;
     --default-max-parallel)
@@ -103,6 +149,9 @@ if [[ "$default_model" =~ [[:space:]] ]]; then
   echo "Default model must not contain whitespace: $default_model" >&2
   exit 2
 fi
+
+validate_reasoning_effort "$default_coordinator_reasoning_effort"
+validate_reasoning_effort "$default_repository_agent_reasoning_effort"
 
 if [[ ! "$default_max_parallel" =~ ^[1-9][0-9]*$ || "${#default_max_parallel}" -gt 9 ]]; then
   echo "Default maximum parallel repository agents must be a positive integer no greater than 999999999: $default_max_parallel" >&2
@@ -286,6 +335,10 @@ if [[ -f "$projects_registry" ]]; then
   jq \
     --arg default_model "$default_model" \
     --arg default_model_explicit "$default_model_explicit" \
+    --arg default_coordinator_reasoning_effort "$default_coordinator_reasoning_effort" \
+    --arg default_coordinator_reasoning_effort_explicit "$default_coordinator_reasoning_effort_explicit" \
+    --arg default_repository_agent_reasoning_effort "$default_repository_agent_reasoning_effort" \
+    --arg default_repository_agent_reasoning_effort_explicit "$default_repository_agent_reasoning_effort_explicit" \
     --arg default_max_parallel "$default_max_parallel" \
     --arg default_max_parallel_explicit "$default_max_parallel_explicit" \
     '
@@ -295,6 +348,16 @@ if [[ -f "$projects_registry" ]]; then
         .defaults.model = $default_model
       else
         .defaults.model //= $default_model
+      end |
+      if $default_coordinator_reasoning_effort_explicit == "true" then
+        .defaults.coordinatorReasoningEffort = $default_coordinator_reasoning_effort
+      else
+        .defaults.coordinatorReasoningEffort //= $default_coordinator_reasoning_effort
+      end |
+      if $default_repository_agent_reasoning_effort_explicit == "true" then
+        .defaults.repositoryAgentReasoningEffort = $default_repository_agent_reasoning_effort
+      else
+        .defaults.repositoryAgentReasoningEffort //= $default_repository_agent_reasoning_effort
       end |
       if $default_max_parallel_explicit == "true" then
         .defaults.maxParallel = ($default_max_parallel | tonumber)
@@ -306,12 +369,16 @@ if [[ -f "$projects_registry" ]]; then
 else
   jq -n \
     --arg default_model "$default_model" \
+    --arg default_coordinator_reasoning_effort "$default_coordinator_reasoning_effort" \
+    --arg default_repository_agent_reasoning_effort "$default_repository_agent_reasoning_effort" \
     --argjson default_max_parallel "$default_max_parallel" \
     '{
       version: 1,
       defaults: {
         maxAttempts: 3,
         model: $default_model,
+        coordinatorReasoningEffort: $default_coordinator_reasoning_effort,
+        repositoryAgentReasoningEffort: $default_repository_agent_reasoning_effort,
         maxParallel: $default_max_parallel
       },
       projects: []
@@ -353,6 +420,8 @@ echo "Command: $command_path"
 echo "Data: $data_directory"
 echo "Configuration: $projects_registry"
 echo "Default repository-agent model: $(jq -r '.defaults.model' "$projects_registry")"
+echo "Default coordinator reasoning effort: $(jq -r '.defaults.coordinatorReasoningEffort' "$projects_registry")"
+echo "Default repository-agent reasoning effort: $(jq -r '.defaults.repositoryAgentReasoningEffort' "$projects_registry")"
 echo "Default maximum parallel repository agents: $(jq -r '.defaults.maxParallel' "$projects_registry")"
 
 case ":${PATH:-}:" in

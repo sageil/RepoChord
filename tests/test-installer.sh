@@ -79,6 +79,8 @@ jq -e '
   .defaults == {
     maxAttempts: 3,
     model: "gpt-5.6-terra",
+    coordinatorReasoningEffort: "medium",
+    repositoryAgentReasoningEffort: "high",
     maxParallel: 2
   } and
   .projects == []
@@ -100,31 +102,60 @@ if [[ "$install_output" != *"$expected_path_instruction"* ]]; then
   exit 1
 fi
 
-HOME="$test_home" \
-"$repository_directory/install.sh" \
-  --bin-dir "$command_bin" \
-  >/dev/null
+jq '
+  del(.defaults.coordinatorReasoningEffort) |
+  del(.defaults.repositoryAgentReasoningEffort)
+' "$projects_registry" > "$projects_registry.legacy"
+mv "$projects_registry.legacy" "$projects_registry"
 
 HOME="$test_home" \
 "$repository_directory/install.sh" \
   --bin-dir "$command_bin" \
-  --default-model openrouter/example/model \
-  --default-max-parallel 4 \
   >/dev/null
 
 jq -e '
-  .defaults.model == "openrouter/example/model" and
-  .defaults.maxParallel == 4 and
-  .projects == []
+  .defaults.coordinatorReasoningEffort == "medium" and
+  .defaults.repositoryAgentReasoningEffort == "high"
 ' "$projects_registry" >/dev/null
 
 HOME="$test_home" \
 "$repository_directory/install.sh" \
   --bin-dir "$command_bin" \
+  --default-model openrouter/example/model \
+  --default-coordinator-reasoning-effort low \
+  --default-repository-agent-reasoning-effort xhigh \
+  --default-max-parallel 4 \
   >/dev/null
 
 jq -e '
   .defaults.model == "openrouter/example/model" and
+  .defaults.coordinatorReasoningEffort == "low" and
+  .defaults.repositoryAgentReasoningEffort == "xhigh" and
+  .defaults.maxParallel == 4 and
+  .projects == []
+' "$projects_registry" >/dev/null
+
+if HOME="$test_home" \
+  "$repository_directory/install.sh" \
+    --bin-dir "$command_bin" \
+    --default-repository-agent-reasoning-effort impossible \
+    >/dev/null 2>&1
+then
+  echo "Installer unexpectedly accepted an invalid repository-agent reasoning effort." >&2
+  exit 1
+fi
+
+test "$(jq -r '.defaults.repositoryAgentReasoningEffort' "$projects_registry")" = "xhigh"
+
+HOME="$test_home" \
+"$repository_directory/install.sh" \
+  --bin-dir "$command_bin" \
+  >/dev/null
+
+jq -e '
+  .defaults.model == "openrouter/example/model" and
+  .defaults.coordinatorReasoningEffort == "low" and
+  .defaults.repositoryAgentReasoningEffort == "xhigh" and
   .defaults.maxParallel == 4
 ' "$projects_registry" >/dev/null
 
@@ -134,6 +165,8 @@ jq -n '{
   defaults: {
     maxAttempts: 3,
     model: "gpt-5.6-terra",
+    coordinatorReasoningEffort: "medium",
+    repositoryAgentReasoningEffort: "high",
     maxParallel: 0
   },
   projects: []
@@ -223,6 +256,8 @@ HOME="$test_home" "$repomux_command" init \
   -c "$coordinate_repository" \
   --create-coordinate \
   --model project-model \
+  --coordinator-reasoning-effort high \
+  --repository-agent-reasoning-effort medium \
   --max-parallel 3 \
   -r "api=$api_repository" \
   -r "web=$web_repository"
@@ -249,12 +284,16 @@ jq -e \
    .defaults == {
      maxAttempts: 3,
      model: "openrouter/example/model",
+     coordinatorReasoningEffort: "low",
+     repositoryAgentReasoningEffort: "xhigh",
      maxParallel: 4
    } and
    .projects == [{
      name: "acme-commerce",
      coordinate: $coordinate,
      model: "project-model",
+     coordinatorReasoningEffort: "high",
+     repositoryAgentReasoningEffort: "medium",
      maxParallel: 3
    }]' \
   "$projects_registry" \
@@ -283,10 +322,36 @@ test "$(
     max-parallel
 )" = "3"
 
+test "$(
+  HOME="$test_home" \
+  "$repomux_command" config get \
+    --project acme-commerce \
+    coordinator-reasoning-effort
+)" = "high"
+
+test "$(
+  HOME="$test_home" \
+  "$repomux_command" config get \
+    --project acme-commerce \
+    repository-agent-reasoning-effort
+)" = "medium"
+
 HOME="$test_home" \
 "$repomux_command" config set \
   --project acme-commerce \
   model project-model-2 \
+  >/dev/null
+
+HOME="$test_home" \
+"$repomux_command" config set \
+  --project acme-commerce \
+  coordinator-reasoning-effort xhigh \
+  >/dev/null
+
+HOME="$test_home" \
+"$repomux_command" config set \
+  --project acme-commerce \
+  repository-agent-reasoning-effort low \
   >/dev/null
 
 HOME="$test_home" \
@@ -338,6 +403,8 @@ jq -e \
    select(.name == "acme-commerce") |
    .maxAttempts == 5 and
    .model == "project-model-2" and
+   .coordinatorReasoningEffort == "xhigh" and
+   .repositoryAgentReasoningEffort == "low" and
    .maxParallel == 5' \
   "$projects_registry" \
   >/dev/null
@@ -369,6 +436,27 @@ then
   exit 1
 fi
 
+if HOME="$test_home" "$repomux_command" config set \
+  --project acme-commerce \
+  coordinator-reasoning-effort impossible \
+  >/dev/null 2>&1
+then
+  echo "RepoMux unexpectedly accepted an invalid coordinator reasoning effort." >&2
+  exit 1
+fi
+
+if HOME="$test_home" "$repomux_command" init \
+  --project acme-commerce \
+  --coordinate "$coordinate_repository" \
+  --repository-agent-reasoning-effort impossible \
+  --repository "api=$api_repository" \
+  --repository "web=$web_repository" \
+  >/dev/null 2>&1
+then
+  echo "RepoMux unexpectedly accepted an invalid repository-agent reasoning effort." >&2
+  exit 1
+fi
+
 mkdir -p "$fake_bin"
 cp "$test_directory/fixtures/fake-codex-start.sh" "$fake_bin/codex"
 chmod +x "$fake_bin/codex"
@@ -388,6 +476,8 @@ diff -u \
     "$coordinate_repository" \
     --sandbox \
     workspace-write \
+    --config \
+    'model_reasoning_effort="xhigh"' \
     --add-dir \
     "$api_repository" \
     --add-dir \
@@ -398,6 +488,7 @@ diff -u \
 
 grep -Fqx "5" "$attempts_capture"
 grep -Fqx "model=project-model-2" "$settings_capture"
+grep -Fqx "repository_agent_reasoning_effort=low" "$settings_capture"
 grep -Fqx "max_parallel=5" "$settings_capture"
 
 HOME="$test_home" \
@@ -408,12 +499,16 @@ FAKE_REPOMUX_SETTINGS_CAPTURE="$settings_capture" \
 "$repomux_command" \
   --project acme-commerce \
   --model session-model \
+  --coordinator-reasoning-effort medium \
+  --repository-agent-reasoning-effort xhigh \
   --max-parallel 7 \
   --max-attempts 7
 
 grep -Fqx "7" "$attempts_capture"
 grep -Fqx "model=session-model" "$settings_capture"
+grep -Fqx "repository_agent_reasoning_effort=xhigh" "$settings_capture"
 grep -Fqx "max_parallel=7" "$settings_capture"
+grep -Fqx 'model_reasoning_effort="medium"' "$launcher_capture"
 
 test "$(
   HOME="$test_home" \
@@ -436,6 +531,20 @@ test "$(
     max-parallel
 )" = "5"
 
+test "$(
+  HOME="$test_home" \
+  "$repomux_command" config get \
+    --project acme-commerce \
+    coordinator-reasoning-effort
+)" = "xhigh"
+
+test "$(
+  HOME="$test_home" \
+  "$repomux_command" config get \
+    --project acme-commerce \
+    repository-agent-reasoning-effort
+)" = "low"
+
 (
   cd "$api_repository"
   HOME="$test_home" \
@@ -453,6 +562,8 @@ diff -u \
     "$coordinate_repository" \
     --sandbox \
     workspace-write \
+    --config \
+    'model_reasoning_effort="xhigh"' \
     --add-dir \
     "$web_repository" \
     --model \
@@ -474,6 +585,8 @@ diff -u \
     "$coordinate_repository" \
     --sandbox \
     workspace-write \
+    --config \
+    'model_reasoning_effort="xhigh"' \
     --add-dir \
     "$api_repository") \
   "$launcher_capture"
@@ -526,6 +639,7 @@ fi
   HOME="$test_home" \
   PATH="$fake_bin:$PATH" \
   FAKE_CODEX_START_CAPTURE="$launcher_capture" \
+  FAKE_REPOMUX_SETTINGS_CAPTURE="$settings_capture" \
   "$repomux_command" \
     --project back-office
 )
@@ -536,9 +650,13 @@ diff -u \
     "$second_coordinate_repository" \
     --sandbox \
     workspace-write \
+    --config \
+    'model_reasoning_effort="low"' \
     --add-dir \
     "$admin_repository") \
   "$launcher_capture"
+
+grep -Fqx "repository_agent_reasoning_effort=xhigh" "$settings_capture"
 
 HOME="$test_home" \
 /bin/bash "$repomux_command" init \

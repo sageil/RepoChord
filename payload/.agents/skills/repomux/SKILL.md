@@ -63,7 +63,6 @@ Run without an explicit run ID to generate one from the feature ID:
 
 ```bash
 bash .agents/skills/repomux/scripts/run-repository-agents.sh \
-  --reasoning-effort medium \
   <absolute-assignments-file>
 ```
 
@@ -76,15 +75,13 @@ Pass `<run-id>` before `<absolute-assignments-file>` only when the user or an ex
 
 Read the generated run ID from the result-directory path and include it in the final report.
 
-Omit `--reasoning-effort` to use the selected model or profile default.
-
 Use `--profile <profile>` only when repository agents require a named Codex configuration profile.
 
-The repository-agent launcher reads the effective model and maximum concurrency from the RepoMux session or stored project configuration.
+The repository-agent launcher reads the effective model, reasoning effort, and maximum concurrency from the RepoMux session or stored project configuration.
 
-An explicit `--model` or `--max-parallel` value on `run-repository-agents.sh` takes precedence over the session and stored values.
+An explicit `--model`, `--reasoning-effort`, or `--max-parallel` value on `run-repository-agents.sh` takes precedence over the session and stored values.
 
-When no configured value exists, the model fallback is `gpt-5.6-terra` and the maximum concurrency fallback is two repository agents.
+When no configured value exists, the model fallback is `gpt-5.6-terra`, the repository-agent reasoning-effort fallback is `high`, and the maximum concurrency fallback is two repository agents.
 
 The repository-agent script reads the stored project maximum when `REPOMUX_MAX_ATTEMPTS` is absent.
 

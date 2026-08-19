@@ -469,6 +469,12 @@ HOME="$test_home" \
 HOME="$test_home" \
 "$command_bin/repomux" config set \
   --project repository-agent-test \
+  repository-agent-reasoning-effort low \
+  >/dev/null
+
+HOME="$test_home" \
+"$command_bin/repomux" config set \
+  --project repository-agent-test \
   max-parallel 1 \
   >/dev/null
 
@@ -481,8 +487,35 @@ FAKE_CODEX_MODE=completed \
 
 jq -e '
   .status == "completed" and
-  .execution.model == "stored-model"
+  .execution.model == "stored-model" and
+  .execution.reasoning_effort == "low"
 ' "$coordinate_repository/.repomux/results/PROJECT-123-stored-settings/web.json" >/dev/null
+
+PATH="$fake_bin:$PATH" \
+FAKE_CODEX_MODE=completed \
+REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT=medium \
+"$runner" \
+  PROJECT-123-environment-reasoning \
+  "$web_assignment" \
+  >/dev/null
+
+jq -e '
+  .status == "completed" and
+  .execution.reasoning_effort == "medium"
+' "$coordinate_repository/.repomux/results/PROJECT-123-environment-reasoning/web.json" >/dev/null
+
+if PATH="$fake_bin:$PATH" \
+  REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT=impossible \
+  "$runner" \
+    PROJECT-123-invalid-environment-reasoning \
+    "$web_assignment" \
+    >/dev/null 2>&1
+then
+  echo "Runner unexpectedly accepted an invalid environment reasoning effort." >&2
+  exit 1
+fi
+
+test ! -e "$coordinate_repository/.repomux/results/PROJECT-123-invalid-environment-reasoning"
 
 if PATH="$fake_bin:$PATH" \
   REPOMUX_MAX_PARALLEL=0 \
@@ -501,6 +534,12 @@ HOME="$test_home" \
 "$command_bin/repomux" config set \
   --project repository-agent-test \
   model gpt-5.6-terra \
+  >/dev/null
+
+HOME="$test_home" \
+"$command_bin/repomux" config set \
+  --project repository-agent-test \
+  repository-agent-reasoning-effort high \
   >/dev/null
 
 HOME="$test_home" \
@@ -562,13 +601,13 @@ FAKE_CODEX_CAPTURE_DIRECTORY="$capture_directory" \
 jq -e '
   .status == "completed" and
   .execution.model == "gpt-5.6-terra" and
-  .execution.reasoning_effort == null and
+  .execution.reasoning_effort == "high" and
   .execution.profile == null
 ' "$coordinate_repository/.repomux/results/PROJECT-123-defaults/web.json" >/dev/null
 
 jq -e '
   .model == "gpt-5.6-terra" and
-  .reasoning_effort == null and
+  .reasoning_effort == "high" and
   .profile == null and
   .network_access_disabled == false
 ' "$capture_directory/web.json" >/dev/null
