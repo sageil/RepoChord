@@ -210,11 +210,15 @@ repomux report --run <run-id>
 
 The command prints a short receipt and saves the complete deterministic report at the path in that receipt.
 
-Do not recreate, summarize, or copy the report from the result files.
+Read the complete report file from the exact path printed by the command.
 
-After the command finishes, reply only with this sentence: `The complete RepoMux report is available at the path shown above.`
+Use the complete contents of that file as the final response.
 
-This keeps the exact CLI output visible and prevents the coordinator from changing report values.
+Do not replace the report with a link, a path, a short receipt, or a sentence that says the report is available elsewhere.
+
+Do not recreate or summarize the report from the result files.
+
+Before sending the final response, confirm that it includes the overall status, every repository, every full commit, every token-usage value, all risks and blockers, every integration state, and the integration commands when the run completed.
 
 The receipt includes the overall status, repository commits, token usage, blockers, integration state, and the complete report path.
 

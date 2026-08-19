@@ -110,10 +110,14 @@ if [[ "$runner_report" != "$(cat "$report_output")" ]]; then
   exit 1
 fi
 
-grep -Fqx "RepoMux run: completed | feature REPORT-123 | run $run_id | pushed no | integrated none | incomplete none" "$report_output"
-grep -Eq 'api \{ status completed \| commit [0-9a-f]+ \| integration pending \| blockers none \| tokens input 100, cached input 40, output 20, reasoning output 5 \}' "$report_output"
-grep -Eq 'web \{ status completed \| commit [0-9a-f]+ \| integration pending \| blockers none \| tokens input 100, cached input 40, output 20, reasoning output 5 \}' "$report_output"
-grep -Fqx "Complete report: $complete_report | Next: repomux integrate --run $run_id --dry-run | Then: repomux integrate --run $run_id" "$report_output"
+grep -Fqx "RepoMux run: completed" "$report_output"
+grep -Fqx "Pushed: no | Integrated: none | Incomplete: none" "$report_output"
+grep -Eq '^api: completed \| commit [0-9a-f]+ \| integration pending \| blockers none$' "$report_output"
+grep -Eq '^web: completed \| commit [0-9a-f]+ \| integration pending \| blockers none$' "$report_output"
+grep -Fqx "  Tokens: input 100 | cached input 40 | output 20 | reasoning output 5" "$report_output"
+grep -Fqx "Complete report: $complete_report" "$report_output"
+grep -Fqx "Next: repomux integrate --run $run_id --dry-run" "$report_output"
+grep -Fqx "Then: repomux integrate --run $run_id" "$report_output"
 
 grep -Fqx "Overall status: completed" "$complete_report"
 grep -Fqx "Incomplete repositories: none" "$complete_report"
@@ -137,8 +141,8 @@ grep -Fqx "  repomux integrate --run $run_id" "$complete_report"
 api_final_commit="$(jq -r '.commit' "$coordinate_repository/.repomux/results/$run_id/api.json")"
 git -C "$api_repository" merge --ff-only "$api_final_commit" >/dev/null
 run_report_expect_status 0 "$report_output"
-grep -Fqx "RepoMux run: completed | feature REPORT-123 | run $run_id | pushed no | integrated api | incomplete none" "$report_output"
-grep -Eq 'api \{ status completed \| commit [0-9a-f]+ \| integration integrated \| blockers none \| tokens input 100, cached input 40, output 20, reasoning output 5 \}' "$report_output"
+grep -Fqx "Pushed: no | Integrated: api | Incomplete: none" "$report_output"
+grep -Eq '^api: completed \| commit [0-9a-f]+ \| integration integrated \| blockers none$' "$report_output"
 grep -Fqx "Integrated repositories: api" "$complete_report"
 grep -A40 -F "Repository: api" "$complete_report" | grep -Fqx "  Integration: integrated"
 
@@ -148,7 +152,7 @@ cp "$api_result" "$api_result_backup"
 
 jq '.execution.usage = null' "$api_result_backup" > "$api_result"
 run_report_expect_status 0 "$report_output"
-grep -Eq 'api \{ status completed \| commit [0-9a-f]+ \| integration integrated \| blockers none \| tokens unavailable \}' "$report_output"
+grep -Fqx "  Tokens: unavailable" "$report_output"
 grep -Fqx "  Token usage: unavailable" "$complete_report"
 
 jq '.execution.usage.input_tokens = -1' "$api_result_backup" > "$api_result"
@@ -164,8 +168,9 @@ jq '
   .execution.retry_safe = true
 ' "$api_result_backup" > "$api_result"
 run_report_expect_status 1 "$report_output"
-grep -Fqx "RepoMux run: incomplete | feature REPORT-123 | run $run_id | pushed no | integrated none | incomplete api" "$report_output"
-grep -Fq 'api { status failed | commit unavailable | integration unavailable | blockers none | tokens input 100, cached input 40, output 20, reasoning output 5 }' "$report_output"
+grep -Fqx "RepoMux run: incomplete" "$report_output"
+grep -Fqx "Pushed: no | Integrated: none | Incomplete: api" "$report_output"
+grep -Eq '^api: failed \| commit unavailable \| integration unavailable \| blockers none$' "$report_output"
 grep -Fqx "Overall status: incomplete" "$complete_report"
 grep -Fqx "Incomplete repositories: api" "$complete_report"
 grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx "  Status: failed"
@@ -181,13 +186,13 @@ jq '
   .execution.retry_safe = false
 ' "$api_result_backup" > "$api_result"
 run_report_expect_status 1 "$report_output"
-grep -Fq 'api { status blocked | commit unavailable | integration unavailable | blockers Approval is required. | tokens input 100, cached input 40, output 20, reasoning output 5 }' "$report_output"
+grep -Fqx "api: blocked | commit unavailable | integration unavailable | blockers Approval is required." "$report_output"
 grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx "  Status: blocked"
 grep -Fqx "  - Approval is required." "$complete_report"
 
 mv "$api_result" "$temporary_root/missing-api-result.json"
 run_report_expect_status 1 "$report_output"
-grep -Fq 'api { status missing | commit unavailable | integration unavailable | blockers result missing | tokens unavailable }' "$report_output"
+grep -Fqx "api: missing | commit unavailable | integration unavailable | blockers result missing" "$report_output"
 grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx "  Status: missing"
 grep -Fqx "  Result: missing" "$complete_report"
 mv "$temporary_root/missing-api-result.json" "$api_result"
