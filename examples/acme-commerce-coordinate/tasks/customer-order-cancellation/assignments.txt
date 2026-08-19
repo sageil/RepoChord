@@ -1,0 +1,2 @@
+api|__EXAMPLE_WORKSPACE__/acme-orders-api|__EXAMPLE_WORKSPACE__/acme-commerce-coordinate/tasks/customer-order-cancellation/api.md
+web|__EXAMPLE_WORKSPACE__/acme-storefront|__EXAMPLE_WORKSPACE__/acme-commerce-coordinate/tasks/customer-order-cancellation/web.md
