@@ -202,15 +202,19 @@ Cleanup removes the worktree and preserves its RepoMux branch and commits.
 
 `run-repository-agents.sh` appends a deterministic report after the repository result paths.
 
-After verifying the repository state, generate the final report with:
+After verifying the repository state, run this as the final workflow action:
 
 ```bash
 repomux report --run <run-id>
 ```
 
-Use the generated report as the final response without removing, rewriting, or summarizing its fields.
+The command output is the final response.
 
-Do not assemble the report manually from the result files.
+End the turn when the command finishes.
+
+Do not write a second response, summary, or introduction after the command.
+
+Do not assemble another report manually from the result files.
 
 The report includes the overall status, incomplete repositories, whether RepoMux pushed or merged work, and every required repository field, including token usage.
 

@@ -470,9 +470,9 @@ for ((index = 0; index < repository_count; index++)); do
     done < <(jq -r '
       .tests[] |
       [
-        (.command | gsub("[\\u0000-\\u001F\\u007F]"; " ")),
+        (.command | gsub("[\u0000-\u001F\u007F]"; " ")),
         .status,
-        (.summary | gsub("[\\u0000-\\u001F\\u007F]"; " "))
+        (.summary | gsub("[\u0000-\u001F\u007F]"; " "))
       ] |
       @tsv
     ' "$result_path")
