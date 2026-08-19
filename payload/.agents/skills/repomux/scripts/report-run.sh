@@ -18,96 +18,22 @@ single_line() {
   jq -r "$filter | gsub(\"[\\u0000-\\u001F\\u007F]\"; \" \")" "$result_path"
 }
 
-markdown_escape() {
-  local value="$1"
-
-  jq -nr \
-    --arg value "$value" \
-    '$value | gsub("(?<character>[\\\\`*{}\\[\\]()<>#+.!_|-])"; "\\\(.character)")'
-}
-
-markdown_code() {
-  local value="$1"
-  local delimiter='`'
-
-  while [[ "$value" == *"$delimiter"* ]]; do
-    delimiter="${delimiter}"'`'
-  done
-
-  printf '%s %s %s' "$delimiter" "$value" "$delimiter"
-}
-
-status_badge() {
-  local status="$1"
-
-  case "$status" in
-    completed)
-      printf '🟢 **Completed**'
-      ;;
-    blocked)
-      printf '🟡 **Blocked**'
-      ;;
-    failed)
-      printf '🔴 **Failed**'
-      ;;
-    incomplete)
-      printf '🔴 **Incomplete**'
-      ;;
-    missing)
-      printf '🔴 **Missing**'
-      ;;
-    passed)
-      printf '🟢 **Passed**'
-      ;;
-    not_run)
-      printf '🟡 **Not run**'
-      ;;
-    *)
-      printf '⚪ **%s**' "$(markdown_escape "$status")"
-      ;;
-  esac
-}
-
-integration_badge() {
-  local status="$1"
-
-  case "$status" in
-    integrated)
-      printf '🟢 **Integrated**'
-      ;;
-    pending)
-      printf '🟡 **Pending**'
-      ;;
-    partially_integrated)
-      printf '🟡 **Partially integrated**'
-      ;;
-    diverged)
-      printf '🔴 **Diverged**'
-      ;;
-    not_ready)
-      printf '🔴 **Not ready**'
-      ;;
-    *)
-      printf '⚪ **Unavailable**'
-      ;;
-  esac
-}
-
-display_markdown_string_list() {
+display_string_list() {
   local result_path="$1"
   local filter="$2"
+  local empty_text="$3"
   local item_count
   local item
 
   item_count="$(jq "$filter | length" "$result_path")"
 
   if [[ "$item_count" -eq 0 ]]; then
-    echo "None."
+    printf '  %s\n' "$empty_text"
     return
   fi
 
   while IFS= read -r item; do
-    printf -- '- %s\n' "$(markdown_escape "$item")"
+    printf '  - %s\n' "$item"
   done < <(jq -r "${filter}[] | gsub(\"[\\u0000-\\u001F\\u007F]\"; \" \")" "$result_path")
 }
 
@@ -518,43 +444,13 @@ else
   done
 fi
 
-integration_status="unavailable"
-
-if [[ "$overall_status" == "incomplete" ]]; then
-  integration_status="not_ready"
-elif [[ "${#integrated_repositories[@]}" -eq "$repository_count" ]]; then
-  integration_status="integrated"
-elif [[ "${#integrated_repositories[@]}" -gt 0 ]]; then
-  integration_status="partially_integrated"
-else
-  integration_status="pending"
-fi
-
-for repository_integration_state in "${integration_states[@]}"; do
-  if [[ "$repository_integration_state" == "diverged" ]]; then
-    integration_status="diverged"
-    break
-  fi
-done
-
 write_complete_report() {
-  echo "# RepoMux run report"
-  echo
-  echo "## Outcome"
-  echo
-  echo "**Repository work:** $(status_badge "$overall_status")"
-  echo
-  echo "**Integration:** $(integration_badge "$integration_status")"
-  echo
-  echo "**Pushed by RepoMux:** No"
-  echo
-  printf '**Feature:** %s\n' "$(markdown_code "$feature_id")"
-  echo
-  printf '**Run:** %s\n' "$(markdown_code "$run_id")"
-  echo
-  echo "**Integrated repositories:** $(markdown_escape "$integrated_list")"
-  echo
-  echo "**Incomplete repositories:** $(markdown_escape "$incomplete_list")"
+  echo "RepoMux run report"
+  echo "Feature: $feature_id"
+  echo "Run: $run_id"
+  echo "Overall status: $overall_status"
+  echo "Pushed by RepoMux: no"
+  echo "Incomplete repositories: $incomplete_list"
 
   for ((index = 0; index < repository_count; index++)); do
     repository_key="${repository_keys[$index]}"
@@ -562,37 +458,23 @@ write_complete_report() {
     repository_status="${repository_statuses[$index]}"
 
     echo
-    printf '## Repository: %s\n' "$(markdown_code "$repository_key")"
-    echo
-    echo "**Status:** $(status_badge "$repository_status")"
+    echo "Repository: $repository_key"
+    echo "  Status: $repository_status"
 
     if [[ "$repository_status" == "missing" ]]; then
-      echo
-      echo "**Result:** 🔴 **Missing**"
+      echo "  Result: missing"
       continue
     fi
 
-    if [[ "$repository_status" == "completed" ]]; then
-      echo
-      echo "**Integration:** $(integration_badge "${integration_states[$index]}")"
-    fi
-
-    echo
-    printf '**Commit:** %s\n' "$(markdown_code "$(jq -r '.commit // "unavailable"' "$result_path")")"
-    echo
-    markdown_escape "$(single_line "$result_path" '.summary')"
-    echo
-    echo "### Verification"
-    echo
+    echo "  Summary: $(single_line "$result_path" '.summary')"
+    echo "  Commit: $(jq -r '.commit // "unavailable"' "$result_path")"
+    echo "  Tests:"
 
     if [[ "$(jq '.tests | length' "$result_path")" -eq 0 ]]; then
-      echo "None."
+      echo "    none"
     else
       while IFS=$'\t' read -r test_command test_status test_summary; do
-        printf -- '- %s - %s: %s\n' \
-          "$(status_badge "$test_status")" \
-          "$(markdown_code "$test_command")" \
-          "$(markdown_escape "$test_summary")"
+        printf '    - %s: %s - %s\n' "$test_command" "$test_status" "$test_summary"
       done < <(jq -r '
         .tests[] |
         [
@@ -604,74 +486,42 @@ write_complete_report() {
       ' "$result_path")
     fi
 
-    echo
-    echo "### Risks"
-    echo
-    display_markdown_string_list "$result_path" '.risks'
-    echo
-    echo "### Blockers"
-    echo
-    display_markdown_string_list "$result_path" '.blockers'
-    echo
-    echo "### Token usage"
-    echo
+    echo "  Risks:"
+    display_string_list "$result_path" '.risks' "none"
+    echo "  Blockers:"
+    display_string_list "$result_path" '.blockers' "none"
+    echo "  Model: $(single_line "$result_path" '.execution.model')"
+    echo "  Reasoning effort: $(jq -r '.execution.reasoning_effort // "unavailable"' "$result_path")"
+    echo "  Attempt: $(jq -r '.execution.attempt_count' "$result_path") of $(jq -r '.execution.max_attempts' "$result_path")"
 
     if jq -e '.execution.usage == null' "$result_path" >/dev/null; then
-      echo "⚪ **Unavailable**"
+      echo "  Token usage: unavailable"
     else
-      echo "**Input:** $(markdown_code "$(jq -r '.execution.usage.input_tokens' "$result_path")")"
-      echo
-      echo "**Cached input:** $(markdown_code "$(jq -r '.execution.usage.cached_input_tokens' "$result_path")")"
-      echo
-      echo "**Output:** $(markdown_code "$(jq -r '.execution.usage.output_tokens' "$result_path")")"
-      echo
-      echo "**Reasoning output:** $(markdown_code "$(jq -r '.execution.usage.reasoning_output_tokens' "$result_path")")"
+      echo "  Token usage:"
+      echo "    Input: $(jq -r '.execution.usage.input_tokens' "$result_path")"
+      echo "    Cached input: $(jq -r '.execution.usage.cached_input_tokens' "$result_path")"
+      echo "    Output: $(jq -r '.execution.usage.output_tokens' "$result_path")"
+      echo "    Reasoning output: $(jq -r '.execution.usage.reasoning_output_tokens' "$result_path")"
     fi
 
-    echo
-    echo "### Execution details"
-    echo
-    printf '**Model:** %s\n' "$(markdown_code "$(single_line "$result_path" '.execution.model')")"
-    echo
-    printf '**Reasoning effort:** %s\n' "$(markdown_code "$(jq -r '.execution.reasoning_effort // "unavailable"' "$result_path")")"
-    echo
-    echo "**Attempt:** $(markdown_code "$(jq -r '.execution.attempt_count' "$result_path")") of $(markdown_code "$(jq -r '.execution.max_attempts' "$result_path")")"
-    echo
-    echo "**Retry safe:** $(jq -r 'if .execution.retry_safe then "Yes" else "No" end' "$result_path")"
-    echo
-    echo "**Source repository:** $(markdown_code "$(single_line "$result_path" '.execution.source_repository_path // "unavailable"')")"
-    echo
-    echo "**Base branch:** $(markdown_code "$(single_line "$result_path" '.execution.base_branch // "unavailable"')")"
-    echo
-    echo "**Base commit:** $(markdown_code "$(single_line "$result_path" '.execution.base_commit // "unavailable"')")"
-    echo
-    echo "**Final commit:** $(markdown_code "$(single_line "$result_path" '.commit // "unavailable"')")"
-    echo
-    echo "**Worktree:** $(markdown_code "$(single_line "$result_path" '.execution.worktree_path // "unavailable"')")"
-    echo
-    echo "**Worktree branch:** $(markdown_code "$(single_line "$result_path" '.execution.worktree_branch // "unavailable"')")"
+    echo "  Retry safe: $(jq -r 'if .execution.retry_safe then "yes" else "no" end' "$result_path")"
+    echo "  Source repository: $(single_line "$result_path" '.execution.source_repository_path // "unavailable"')"
+    echo "  Base branch: $(single_line "$result_path" '.execution.base_branch // "unavailable"')"
+    echo "  Base commit: $(single_line "$result_path" '.execution.base_commit // "unavailable"')"
+    echo "  Final commit: $(single_line "$result_path" '.commit // "unavailable"')"
+    echo "  Worktree: $(single_line "$result_path" '.execution.worktree_path // "unavailable"')"
+    echo "  Worktree branch: $(single_line "$result_path" '.execution.worktree_branch // "unavailable"')"
 
     if [[ "$repository_status" == "completed" ]]; then
-      echo
-      echo "**Worktree present:** ${worktree_presence[$index]}"
+      echo "  Worktree present: ${worktree_presence[$index]}"
     fi
   done
 
   if [[ "$overall_status" == "completed" ]]; then
     echo
-    echo "## Next actions"
-    echo
-    echo "Review the integration first:"
-    echo
-    echo '```bash'
-    echo "repomux integrate --run $run_id --dry-run"
-    echo '```'
-    echo
-    echo "Then integrate the completed changes:"
-    echo
-    echo '```bash'
-    echo "repomux integrate --run $run_id"
-    echo '```'
+    echo "Next actions:"
+    echo "  repomux integrate --run $run_id --dry-run"
+    echo "  repomux integrate --run $run_id"
   fi
 }
 
@@ -697,23 +547,22 @@ report_stage=""
 echo "RepoMux run: $overall_status"
 echo "Feature: $feature_id"
 echo "Run: $run_id"
-echo "Pushed: no | Integrated: $integrated_list | Incomplete: $incomplete_list"
+echo "Pushed: no | Incomplete: $incomplete_list"
 
 for ((index = 0; index < repository_count; index++)); do
   repository_key="${repository_keys[$index]}"
   result_path="${result_paths[$index]}"
   repository_status="${repository_statuses[$index]}"
-  integration_state="${integration_states[$index]}"
 
   if [[ "$repository_status" == "missing" ]]; then
-    echo "$repository_key: missing | commit unavailable | integration unavailable | blockers result missing"
+    echo "$repository_key: missing | commit unavailable | blockers result missing"
     echo "  Tokens: unavailable"
     continue
   fi
 
   commit="$(jq -r '.commit // "unavailable"' "$result_path")"
   blockers="$(inline_string_list "$result_path" '.blockers' 'none')"
-  echo "$repository_key: $repository_status | commit $commit | integration $integration_state | blockers $blockers"
+  echo "$repository_key: $repository_status | commit $commit | blockers $blockers"
 
   if jq -e '.execution.usage == null' "$result_path" >/dev/null; then
     echo "  Tokens: unavailable"

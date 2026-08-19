@@ -219,9 +219,9 @@ Do not replace the report with a link, a path, a short receipt, or a sentence th
 
 Do not recreate or summarize the report from the result files.
 
-Before sending the final response, confirm that it includes the overall status, every repository, every full commit, every token-usage value, all risks and blockers, every integration state, and the integration commands when the run completed.
+Before sending the final response, confirm that it includes the overall status, every repository, every full commit, every token-usage value, all risks and blockers, and the integration commands when the run completed.
 
-The receipt includes the overall status, repository commits, token usage, blockers, integration state, and the complete report path.
+The receipt includes the overall status, repository commits, token usage, blockers, and the complete report path.
 
 The complete report includes the detailed repository result, execution, and worktree information.
 
