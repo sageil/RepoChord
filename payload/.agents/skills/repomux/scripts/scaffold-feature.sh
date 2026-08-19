@@ -288,74 +288,11 @@ for repository_key in "$@"; do
 done
 
 if [[ "$reuse_existing_feature" == true ]]; then
-  if [[ -L "$request_path" || ! -f "$request_path" ]]; then
-    echo "Existing feature request is missing or unsafe: $request_path" >&2
-    exit 2
-  fi
-
-  if [[ -L "$task_directory" || ! -d "$task_directory" ]]; then
-    echo "Existing feature task directory is missing or unsafe: $task_directory" >&2
-    exit 2
-  fi
-
-  if [[ -L "$assignment_path" || ! -f "$assignment_path" ]]; then
-    echo "Existing feature assignments are missing or unsafe: $assignment_path" >&2
-    exit 2
-  fi
-
-  assignment_keys=()
-
-  while IFS='|' read -r assignment_key assignment_repository_path assignment_task_path assignment_extra; do
-    if [[ -z "$assignment_key" || \
-      -z "$assignment_repository_path" || \
-      -z "$assignment_task_path" || \
-      -n "$assignment_extra" ]]
-    then
-      echo "Existing feature assignment is invalid: $assignment_path" >&2
-      exit 2
-    fi
-
-    repository_index=-1
-
-    for ((index = 0; index < ${#repository_keys[@]}; index++)); do
-      if [[ "${repository_keys[$index]}" == "$assignment_key" ]]; then
-        repository_index="$index"
-        break
-      fi
-    done
-
-    if [[ "$repository_index" -lt 0 ]]; then
-      echo "Existing feature has an unexpected repository assignment: $assignment_key" >&2
-      exit 2
-    fi
-
-    for existing_key in ${assignment_keys[@]+"${assignment_keys[@]}"}; do
-      if [[ "$existing_key" == "$assignment_key" ]]; then
-        echo "Existing feature has a duplicate repository assignment: $assignment_key" >&2
-        exit 2
-      fi
-    done
-
-    expected_task_path="$task_directory/$assignment_key.md"
-
-    if [[ "$assignment_repository_path" != "${repository_paths[$repository_index]}" ]]; then
-      echo "Existing feature repository path does not match the registry: $assignment_key" >&2
-      exit 2
-    fi
-
-    if [[ "$assignment_task_path" != "$expected_task_path" || \
-      -L "$expected_task_path" || \
-      ! -f "$expected_task_path" ]]
-    then
-      echo "Existing feature task is missing or unsafe: $expected_task_path" >&2
-      exit 2
-    fi
-
-    assignment_keys+=("$assignment_key")
-  done < "$assignment_path"
-
-  if [[ "${#assignment_keys[@]}" -ne "${#repository_keys[@]}" ]]; then
-    echo "Existing feature assignments do not match the requested repositories: $feature_id" >&2
+  if [[ -L "$request_path" || ! -f "$request_path" || \
+    -L "$task_directory" || ! -d "$task_directory" || \
+    -L "$assignment_path" || ! -f "$assignment_path" ]]
+  then
+    echo "Existing feature files are incomplete or unsafe: $feature_id" >&2
     exit 2
   fi
 
