@@ -88,8 +88,15 @@ For Zsh, add this to `~/.zshrc`:
 source <(repomux completion zsh)
 ```
 
-Open a new shell after saving the file.
-RepoMux will complete commands, options, project names, repository keys, run IDs, settings, and reasoning-effort values.
+Open a new shell after saving the file or from the same shell run `source ~/.zshrc` for zsh or `source ~/.bashrc` for bash to activate autocomplete.
+
+### Upgrade registered projects
+
+```bash
+repomux upgrade
+```
+
+RepoMux replaces its managed skill files in each project and keeps the project settings, repository lists, requests, tasks, results, and worktrees.
 
 ### Uninstall RepoMux
 
@@ -102,7 +109,7 @@ Run the uninstall script from the cloned RepoMux repository:
 This removes the `repomux` command and shared skill but keeps your project registry.
 It also keeps all coordination repositories, product repositories, worktrees, branches, commits, and results.
 
-If you installed the command in a custom directory, pass the same directory during uninstall:
+If you installed the repomux in a custom directory, pass the same directory during uninstall:
 
 ```bash
 ./uninstall.sh --bin-dir /absolute/command/directory
@@ -441,54 +448,49 @@ Pass an explicit run ID before the assignments file only when another system req
 
 These captures show one complete feature workflow in order.
 
-### 1. Submit the feature request
+### 1. Start the feature in Codex
 
-Start RepoMux for the registered project and describe the cross-repository feature to the coordinator.
+Start RepoMux for the registered project, then ask Codex to implement the customer order cancellation feature.
 
-![Submit a downloadable order receipt feature to the RepoMux coordinator](assets/workflow-screen-captures/workflow-2026-08-18-213931.png)
+![Start the customer order cancellation feature with RepoMux in Codex](assets/workflow-screen-captures/workflow-2026-08-19-132546.png)
 
-### 2. Inspect the repositories and define the requirements
+### 2. Review the implementation plan
 
-The coordinator verifies both repositories, inspects the existing API and web paths, and defines the shared receipt requirements.
+The coordinator inspects the API and web repositories, confirms the feature requirements, and asks for approval before it starts the repository agents.
 
-![RepoMux inspecting the API and web repositories and defining the shared requirements](assets/workflow-screen-captures/workflow-2026-08-18-214037.png)
+![Review the customer order cancellation implementation plan](assets/workflow-screen-captures/workflow-2026-08-19-132621.png)
 
-### 3. Prepare the repository tasks
+### 3. Approve the implementation
 
-The coordinator writes bounded API and web tasks with acceptance criteria, test commands, and commit messages.
+After approval, the coordinator starts RepoMux.
+If an assignment file has the wrong format, RepoMux stops before it creates repository worktrees.
 
-![RepoMux preparing the API and web repository task files](assets/workflow-screen-captures/workflow-2026-08-18-214108.png)
+![Approve the implementation and see RepoMux reject an invalid assignment file](assets/workflow-screen-captures/workflow-2026-08-19-132757.png)
 
-### 4. Approve isolated implementation
+### 4. Run the repository agents
 
-RepoMux requests elevated execution for the runner because it must create local Git worktrees and feature commits outside the coordinator sandbox.
-The repository agents then run in parallel inside their isolated worktrees.
+The coordinator corrects the assignment file and starts the API and web repository agents in isolated worktrees.
+Both agents implement their tasks, run their tests, and create local commits.
 
-![Approval of the RepoMux runner followed by parallel repository-agent execution](assets/workflow-screen-captures/workflow-2026-08-18-214227.png)
+![Run the API and web repository agents in parallel](assets/workflow-screen-captures/workflow-2026-08-19-133144.png)
 
-### 5. Validate the repository results
+### 5. Review the completed work
 
-After both repository agents finish, the coordinator checks their structured results, worktree branches, commits, clean state, and required tests.
-
-![RepoMux validating completed API and web repository results](assets/workflow-screen-captures/workflow-2026-08-18-214320.png)
-
-### 6. Review the completion report
-
-The completion report shows each repository status, test result, commit, worktree, branch, attempt count, and token usage.
+The coordinator verifies both results and reports each repository commit, test result, worktree, branch, attempt count, model, and reasoning effort.
 It also provides the dry-run and integration commands.
 See [Understand token usage](TOKEN-USAGE.md) for details about token isolation and repository-agent usage data.
 
-![RepoMux completion report for the API and web repositories](assets/workflow-screen-captures/workflow-2026-08-18-214407.png)
+![Review the completed API and web repository work](assets/workflow-screen-captures/workflow-2026-08-19-133202.png)
 
-### 7. Review the integration preflight
+### 6. Review the integration preflight
 
 The integration command verifies the feature documents and repository commits, then shows the planned local fast-forwards before it asks for confirmation.
 
-![RepoMux integration preflight showing documents, commits, tests, and change summaries](assets/workflow-screen-captures/workflow-2026-08-18-214437.png)
+![Review the integration preflight before changing the product repositories](assets/workflow-screen-captures/workflow-2026-08-19-133228.png)
 
-### 8. Confirm local integration
+### 7. Confirm local integration
 
 After confirmation, RepoMux commits the feature documents and fast-forwards the product repository branches.
 It preserves the feature worktrees and does not push changes.
 
-![Completed RepoMux integration with preserved worktrees and no pushed changes](assets/workflow-screen-captures/workflow-2026-08-18-214445.png)
+![Complete the local integration and preserve the RepoMux worktrees](assets/workflow-screen-captures/workflow-2026-08-19-133235.png)

@@ -56,10 +56,10 @@ Start the coordinator from any directory:
 repomux --project acme-example
 ```
 
-Paste this prompt into the coordinator:
+Paste this prompt into Codex:
 
 ```text
-Implement the existing customer-order-cancellation feature in the request and task files.
+$repomux Implement the existing customer-order-cancellation feature in the request and task files.
 Replace every __EXAMPLE_WORKSPACE__ placeholder with the current example workspace path before running the repository agents.
 ```
 
