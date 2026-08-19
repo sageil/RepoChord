@@ -55,6 +55,22 @@ Keep one bounded task per affected repository.
 
 Include the repository path, task, shared contract, acceptance criteria, commit message, and required tests in each task file.
 
+## Approve the proposal
+
+After completing the request and repository task files, present one concise proposal that includes the feature ID, each repository outcome, the shared contract, required verification, and commit messages.
+
+Ask once: `Approve this proposal?`
+
+Do not start repository agents before the user approves the current proposal.
+
+The proposal approval authorizes RepoMux to create the described worktrees and feature commits and to start the repository agents for that proposal.
+
+Do not ask for separate approval to start repository agents.
+
+Do not ask again when the user has already approved the current proposal in the conversation.
+
+Request new approval only when the proposal changes materially after approval.
+
 ## Run repository agents
 
 By default, require no uncommitted changes in affected source repositories.
@@ -76,8 +92,8 @@ bash .agents/skills/repomux/scripts/run-repository-agents.sh \
   <absolute-assignments-file>
 ```
 
-Execute this command with an explicit approval request on the first attempt.
-Set `sandbox_permissions` to `require_escalated` and explain that RepoMux will create isolated local Git worktrees and feature commits in the registered repositories, then run the repository agents.
+After proposal approval, execute this command without another conversational approval request.
+Set `sandbox_permissions` to `require_escalated` because RepoMux creates isolated local Git worktrees and feature commits in the registered repositories.
 Do not run the command inside the coordinator sandbox first.
 Do not request `danger-full-access` for the coordinator.
 
