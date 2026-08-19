@@ -612,8 +612,28 @@ PATH="$fake_bin:$PATH" \
 
 list_output="$(HOME="$test_home" "$repomux_command" list)"
 
-if [[ "$list_output" != *$'acme-commerce\t'"$coordinate_repository"* ]]; then
-  echo "RepoMux list did not include the initialized project." >&2
+expected_list_output="$(printf 'PROJECT\tCOORDINATE\nacme-commerce\t%s\n' "$coordinate_repository")"
+
+if [[ "$list_output" != "$expected_list_output" ]]; then
+  echo "RepoMux list did not return the expected project table." >&2
+  exit 1
+fi
+
+detailed_list_output="$(HOME="$test_home" "$repomux_command" list --details)"
+expected_detailed_list_output="$(printf \
+  'PROJECT\tCOORDINATE\tREPOSITORY\tPATH\nacme-commerce\t%s\tapi\t%s\nacme-commerce\t%s\tweb\t%s\n' \
+  "$coordinate_repository" \
+  "$api_repository" \
+  "$coordinate_repository" \
+  "$web_repository")"
+
+if [[ "$detailed_list_output" != "$expected_detailed_list_output" ]]; then
+  echo "RepoMux detailed list did not include the registered repositories." >&2
+  exit 1
+fi
+
+if HOME="$test_home" "$repomux_command" list --unknown >/dev/null 2>&1; then
+  echo "RepoMux list unexpectedly accepted an unknown option." >&2
   exit 1
 fi
 
