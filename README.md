@@ -72,10 +72,55 @@ You can also install the command in another directory:
 ./install.sh --bin-dir /absolute/command/directory
 ```
 
+### Enable shell completion
+
+Add the command for your shell to its startup file.
+
+For Bash, add this to `~/.bashrc`:
+
+```bash
+source <(repomux completion bash)
+```
+
+For Zsh, add this to `~/.zshrc`:
+
+```zsh
+source <(repomux completion zsh)
+```
+
+Open a new shell after saving the file.
+RepoMux will complete commands, options, project names, repository keys, run IDs, settings, and reasoning-effort values.
+
+### Uninstall RepoMux
+
+Run the uninstall script from the cloned RepoMux repository:
+
+```bash
+./uninstall.sh
+```
+
+This removes the `repomux` command and shared skill but keeps your project registry.
+It also keeps all coordination repositories, product repositories, worktrees, branches, commits, and results.
+
+If you installed the command in a custom directory, pass the same directory during uninstall:
+
+```bash
+./uninstall.sh --bin-dir /absolute/command/directory
+```
+
+To also remove the project registry, use:
+
+```bash
+./uninstall.sh --purge-config
+```
+
+If you enabled shell completion, remove the RepoMux completion command from your shell startup file after uninstalling.
+
 ## Set up your first AI workflow
 
 This walkthrough uses an API repository named `acme-orders-api` and a web repository named `acme-storefront`.
 RepoMux keeps the workflow files in a separate coordination repository named `acme-commerce-coordinate`.
+You can create runnable copies from the [included Acme example](examples/README.md), or use your own repositories.
 
 ### 1. Initialize the project
 
@@ -219,10 +264,41 @@ repomux \
   --profile acme-team
 ```
 
-List or validate registered projects:
+RepoMux normally stops before starting repository agents when a product repository has uncommitted changes.
+To leave those changes in place and start the agents from the committed `HEAD`, add `--allow-dirty-source`:
+
+```bash
+repomux \
+  --project acme-commerce \
+  --allow-dirty-source
+```
+
+The repository agents will not see the uncommitted changes, and integration will wait until the normal product checkout is clean.
+
+List the registered projects:
 
 ```bash
 repomux list
+```
+
+Add `--details` to include each repository key and path:
+
+```bash
+repomux list --details
+```
+
+```text
+PROJECT         COORDINATE                       REPOSITORY   PATH
+acme-commerce   /work/acme-commerce-coordinate   orders-api  /work/acme-orders-api
+acme-commerce   /work/acme-commerce-coordinate   storefront  /work/acme-storefront
+```
+
+RepoMux reads the repository rows from the coordination repository's `.repomux/repositories.json` file.
+It does not duplicate them in the global project registry.
+
+Validate a registered project when you want RepoMux to check its configuration and repository paths:
+
+```bash
 repomux validate --project acme-commerce
 ```
 
