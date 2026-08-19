@@ -164,6 +164,7 @@ script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 skill_directory="$(cd -- "$script_directory/.." && pwd -P)"
 coordinate_root="$(git -C "$skill_directory" rev-parse --show-toplevel)"
 repository_agent_script="$script_directory/run-repository-agent.sh"
+report_script="$script_directory/report-run.sh"
 registry_path="$coordinate_root/.repomux/repositories.json"
 results_root="$coordinate_root/.repomux/results"
 result_directory=""
@@ -907,5 +908,13 @@ for ((index = 0; index < repository_agent_count; index++)); do
     overall_status=1
   fi
 done
+
+echo
+report_status=0
+bash "$report_script" "$run_id" || report_status="$?"
+
+if [[ "$overall_status" -eq 0 && "$report_status" -ne 0 ]]; then
+  overall_status="$report_status"
+fi
 
 exit "$overall_status"

@@ -23,6 +23,7 @@ required_files=(
   "scripts/run-repository-agent.sh"
   "scripts/run-repository-agents.sh"
   "scripts/scaffold-feature.sh"
+  "scripts/report-run.sh"
   "scripts/integrate-run.sh"
 )
 

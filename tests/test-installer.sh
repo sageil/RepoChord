@@ -73,6 +73,7 @@ test -x "$repomux_command"
 test ! -L "$repomux_command"
 test -d "$installed_data/skill"
 test ! -L "$installed_data/skill"
+test -x "$installed_data/skill/scripts/report-run.sh"
 
 jq -e '
   .version == 1 and

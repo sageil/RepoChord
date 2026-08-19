@@ -200,26 +200,21 @@ Cleanup removes the worktree and preserves its RepoMux branch and commits.
 
 ## Report
 
-Report each repository with:
+`run-repository-agents.sh` appends a deterministic report after the repository result paths.
 
-- Feature ID and run ID.
-- Status.
-- Summary.
-- Commit.
-- Tests.
-- Risks.
-- Blockers.
-- Model and reasoning effort.
-- Attempt count and maximum attempts.
-- Token usage.
-- Retry safety.
-- Source repository path and base branch.
-- Base commit and final commit.
-- RepoMux worktree path and branch.
+After verifying the repository state, generate the final report with:
 
-Also report the overall status, incomplete repositories, and whether any work was pushed or merged.
+```bash
+repomux report --run <run-id>
+```
 
-For a completed run, end the report with the exact dry-run and integration commands for that run ID.
+Use the generated report as the final response without removing, rewriting, or summarizing its fields.
+
+Do not assemble the report manually from the result files.
+
+The report includes the overall status, incomplete repositories, whether RepoMux pushed or merged work, and every required repository field, including token usage.
+
+A completed report ends with the exact dry-run and integration commands for that run ID.
 
 Do not push, merge, pull, rebase, delete branches, or remove worktrees unless the user explicitly requests that exact operation.
 

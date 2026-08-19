@@ -11,6 +11,7 @@ Usage:
   repomux config set [-p <name>] <model|coordinator-reasoning-effort|repository-agent-reasoning-effort|max-parallel|max-attempts> <value>
   repomux list [--details]
   repomux validate [-p <name> | -c <path>]
+  repomux report [-p <name>] --run <run-id>
   repomux integrate [-p <name>] --run <run-id> [--dry-run]
   repomux cleanup [-p <name>] --run <run-id> [-r <key>]... [--force]
   repomux completion <bash|zsh>
@@ -147,6 +148,7 @@ validate_skill_directory() {
     "scripts/run-repository-agent.sh"
     "scripts/run-repository-agents.sh"
     "scripts/scaffold-feature.sh"
+    "scripts/report-run.sh"
     "scripts/integrate-run.sh"
     "scripts/cleanup-worktrees.sh"
     "scripts/git-guard.sh"
@@ -821,6 +823,9 @@ _repomux() {
     validate)
       candidates="-p --project -c --coordinate -h --help"
       ;;
+    report)
+      candidates="-p --project --run -h --help"
+      ;;
     integrate)
       candidates="-p --project --run --dry-run -h --help"
       ;;
@@ -1004,6 +1009,9 @@ _repomux() {
       ;;
     validate)
       candidates=(-p --project -c --coordinate -h --help)
+      ;;
+    report)
+      candidates=(-p --project --run -h --help)
       ;;
     integrate)
       candidates=(-p --project --run --dry-run -h --help)
@@ -1943,6 +1951,56 @@ run_integrate() {
   exec bash "$integration_script" "${integration_arguments[@]}"
 }
 
+run_report() {
+  local requested_project=""
+  local run_id=""
+  local report_script
+
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      -p|--project)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        requested_project="$2"
+        shift 2
+        ;;
+      --run)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        run_id="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        fail "Unknown report argument: $1" 2
+        ;;
+    esac
+  done
+
+  if [[ -z "$run_id" || \
+    ! "$run_id" =~ ^[A-Za-z0-9._-]+$ || \
+    "$run_id" == "." || \
+    "$run_id" == ".." ]]
+  then
+    fail "RepoMux report requires a valid --run <run-id>." 2
+  fi
+
+  require_commands bash git jq
+  resolve_project "$requested_project"
+  validate_project_files "$selected_coordinate"
+  report_script="$validated_coordinate_root/.agents/skills/repomux/scripts/report-run.sh"
+  exec bash "$report_script" "$run_id"
+}
+
 run_start() {
   local requested_project=""
   local requested_model=""
@@ -2177,6 +2235,10 @@ case "$1" in
   validate)
     shift
     run_validate "$@"
+    ;;
+  report)
+    shift
+    run_report "$@"
     ;;
   cleanup)
     shift
