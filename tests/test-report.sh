@@ -101,38 +101,50 @@ runner_output="$(
 
 report_output="$temporary_root/report.txt"
 run_report_expect_status 0 "$report_output"
+complete_report="$coordinate_repository/.repomux/results/$run_id/report.md"
 
-runner_report="RepoMux run report${runner_output#*RepoMux run report}"
+runner_report="RepoMux run: completed${runner_output#*RepoMux run: completed}"
 
 if [[ "$runner_report" != "$(cat "$report_output")" ]]; then
-  echo "Runner output did not contain the deterministic report." >&2
+  echo "Runner output did not contain the deterministic receipt." >&2
   exit 1
 fi
 
-grep -Fqx "Overall status: completed" "$report_output"
-grep -Fqx "Incomplete repositories: none" "$report_output"
-grep -Fqx "Pushed by RepoMux: no" "$report_output"
-grep -Fqx "Integrated repositories: none" "$report_output"
-grep -Fqx "Repository: api" "$report_output"
-grep -Fqx "Repository: web" "$report_output"
-grep -Fqx "  Summary: The fake repository agent completed the task." "$report_output"
-grep -Fqx "    - fake test: passed - Passed." "$report_output"
-grep -Fqx "    Input: 100" "$report_output"
-grep -Fqx "    Cached input: 40" "$report_output"
-grep -Fqx "    Output: 20" "$report_output"
-grep -Fqx "    Reasoning output: 5" "$report_output"
-grep -Fqx "  Retry safe: no" "$report_output"
-grep -Fqx "  Source repository: $api_repository" "$report_output"
-grep -Fqx "  Worktree present: yes" "$report_output"
-grep -Fqx "  Integration: pending" "$report_output"
-grep -Fqx "  repomux integrate --run $run_id --dry-run" "$report_output"
-grep -Fqx "  repomux integrate --run $run_id" "$report_output"
+grep -Fqx "RepoMux run: completed" "$report_output"
+grep -Fqx "Pushed: no | Integrated: none | Incomplete: none" "$report_output"
+grep -Eq '^api: completed \| commit [0-9a-f]+ \| integration pending \| blockers none$' "$report_output"
+grep -Eq '^web: completed \| commit [0-9a-f]+ \| integration pending \| blockers none$' "$report_output"
+grep -Fqx "  Tokens: input 100 | cached input 40 | output 20 | reasoning output 5" "$report_output"
+grep -Fqx "Complete report: $complete_report" "$report_output"
+grep -Fqx "Next: repomux integrate --run $run_id --dry-run" "$report_output"
+grep -Fqx "Then: repomux integrate --run $run_id" "$report_output"
+
+grep -Fqx "Overall status: completed" "$complete_report"
+grep -Fqx "Incomplete repositories: none" "$complete_report"
+grep -Fqx "Pushed by RepoMux: no" "$complete_report"
+grep -Fqx "Integrated repositories: none" "$complete_report"
+grep -Fqx "Repository: api" "$complete_report"
+grep -Fqx "Repository: web" "$complete_report"
+grep -Fqx "  Summary: The fake repository agent completed the task." "$complete_report"
+grep -Fqx "    - fake test: passed - Passed." "$complete_report"
+grep -Fqx "    Input: 100" "$complete_report"
+grep -Fqx "    Cached input: 40" "$complete_report"
+grep -Fqx "    Output: 20" "$complete_report"
+grep -Fqx "    Reasoning output: 5" "$complete_report"
+grep -Fqx "  Retry safe: no" "$complete_report"
+grep -Fqx "  Source repository: $api_repository" "$complete_report"
+grep -Fqx "  Worktree present: yes" "$complete_report"
+grep -Fqx "  Integration: pending" "$complete_report"
+grep -Fqx "  repomux integrate --run $run_id --dry-run" "$complete_report"
+grep -Fqx "  repomux integrate --run $run_id" "$complete_report"
 
 api_final_commit="$(jq -r '.commit' "$coordinate_repository/.repomux/results/$run_id/api.json")"
 git -C "$api_repository" merge --ff-only "$api_final_commit" >/dev/null
 run_report_expect_status 0 "$report_output"
-grep -Fqx "Integrated repositories: api" "$report_output"
-grep -A40 -F "Repository: api" "$report_output" | grep -Fqx "  Integration: integrated"
+grep -Fqx "Pushed: no | Integrated: api | Incomplete: none" "$report_output"
+grep -Eq '^api: completed \| commit [0-9a-f]+ \| integration integrated \| blockers none$' "$report_output"
+grep -Fqx "Integrated repositories: api" "$complete_report"
+grep -A40 -F "Repository: api" "$complete_report" | grep -Fqx "  Integration: integrated"
 
 api_result="$coordinate_repository/.repomux/results/$run_id/api.json"
 api_result_backup="$temporary_root/api-result.json"
@@ -140,7 +152,8 @@ cp "$api_result" "$api_result_backup"
 
 jq '.execution.usage = null' "$api_result_backup" > "$api_result"
 run_report_expect_status 0 "$report_output"
-grep -Fqx "  Token usage: unavailable" "$report_output"
+grep -Fqx "  Tokens: unavailable" "$report_output"
+grep -Fqx "  Token usage: unavailable" "$complete_report"
 
 jq '.execution.usage.input_tokens = -1' "$api_result_backup" > "$api_result"
 run_report_expect_status 2 "$report_output"
@@ -155,10 +168,13 @@ jq '
   .execution.retry_safe = true
 ' "$api_result_backup" > "$api_result"
 run_report_expect_status 1 "$report_output"
-grep -Fqx "Overall status: incomplete" "$report_output"
-grep -Fqx "Incomplete repositories: api" "$report_output"
-grep -A1 -F "Repository: api" "$report_output" | grep -Fqx "  Status: failed"
-grep -Fqx "  Retry safe: yes" "$report_output"
+grep -Fqx "RepoMux run: incomplete" "$report_output"
+grep -Fqx "Pushed: no | Integrated: none | Incomplete: api" "$report_output"
+grep -Eq '^api: failed \| commit unavailable \| integration unavailable \| blockers none$' "$report_output"
+grep -Fqx "Overall status: incomplete" "$complete_report"
+grep -Fqx "Incomplete repositories: api" "$complete_report"
+grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx "  Status: failed"
+grep -Fqx "  Retry safe: yes" "$complete_report"
 
 jq '
   .status = "blocked" |
@@ -170,13 +186,15 @@ jq '
   .execution.retry_safe = false
 ' "$api_result_backup" > "$api_result"
 run_report_expect_status 1 "$report_output"
-grep -A1 -F "Repository: api" "$report_output" | grep -Fqx "  Status: blocked"
-grep -Fqx "  - Approval is required." "$report_output"
+grep -Fqx "api: blocked | commit unavailable | integration unavailable | blockers Approval is required." "$report_output"
+grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx "  Status: blocked"
+grep -Fqx "  - Approval is required." "$complete_report"
 
 mv "$api_result" "$temporary_root/missing-api-result.json"
 run_report_expect_status 1 "$report_output"
-grep -A1 -F "Repository: api" "$report_output" | grep -Fqx "  Status: missing"
-grep -Fqx "  Result: missing" "$report_output"
+grep -Fqx "api: missing | commit unavailable | integration unavailable | blockers result missing" "$report_output"
+grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx "  Status: missing"
+grep -Fqx "  Result: missing" "$complete_report"
 mv "$temporary_root/missing-api-result.json" "$api_result"
 
 printf '{}\n' > "$coordinate_repository/.repomux/results/$run_id/unexpected.json"

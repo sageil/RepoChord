@@ -37,6 +37,17 @@ display_string_list() {
   done < <(jq -r "${filter}[] | gsub(\"[\\u0000-\\u001F\\u007F]\"; \" \")" "$result_path")
 }
 
+inline_string_list() {
+  local result_path="$1"
+  local filter="$2"
+  local empty_text="$3"
+
+  jq -r \
+    --arg empty_text "$empty_text" \
+    "$filter | if length == 0 then \$empty_text else map(gsub(\"[\\u0000-\\u001F\\u007F]\"; \" \")) | join(\"; \") end" \
+    "$result_path"
+}
+
 if [[ "$#" -ne 1 ]]; then
   usage
   exit 2
@@ -48,7 +59,7 @@ if [[ ! "$run_id" =~ ^[A-Za-z0-9._-]+$ || "$run_id" == "." || "$run_id" == ".." 
   fail "Report requires a valid run ID." 2
 fi
 
-for required_command in git jq; do
+for required_command in git jq mktemp mv; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     fail "Required command is not installed: $required_command" 2
   fi
@@ -405,14 +416,8 @@ else
   overall_status="incomplete"
 fi
 
-echo "RepoMux run report"
-echo "Feature: $feature_id"
-echo "Run: $run_id"
-echo "Overall status: $overall_status"
-echo "Pushed by RepoMux: no"
-
 if [[ "${#integrated_repositories[@]}" -eq 0 ]]; then
-  echo "Integrated repositories: none"
+  integrated_list="none"
 else
   integrated_list=""
 
@@ -423,12 +428,10 @@ else
 
     integrated_list+="$repository_key"
   done
-
-  echo "Integrated repositories: $integrated_list"
 fi
 
 if [[ "$overall_status" == "completed" ]]; then
-  echo "Incomplete repositories: none"
+  incomplete_list="none"
 else
   incomplete_list=""
 
@@ -439,82 +442,147 @@ else
 
     incomplete_list+="$repository_key"
   done
-
-  echo "Incomplete repositories: $incomplete_list"
 fi
+
+write_complete_report() {
+  echo "RepoMux run report"
+  echo "Feature: $feature_id"
+  echo "Run: $run_id"
+  echo "Overall status: $overall_status"
+  echo "Pushed by RepoMux: no"
+  echo "Integrated repositories: $integrated_list"
+  echo "Incomplete repositories: $incomplete_list"
+
+  for ((index = 0; index < repository_count; index++)); do
+    repository_key="${repository_keys[$index]}"
+    result_path="${result_paths[$index]}"
+    repository_status="${repository_statuses[$index]}"
+
+    echo
+    echo "Repository: $repository_key"
+    echo "  Status: $repository_status"
+
+    if [[ "$repository_status" == "missing" ]]; then
+      echo "  Result: missing"
+      continue
+    fi
+
+    echo "  Summary: $(single_line "$result_path" '.summary')"
+    echo "  Commit: $(jq -r '.commit // "unavailable"' "$result_path")"
+    echo "  Tests:"
+
+    if [[ "$(jq '.tests | length' "$result_path")" -eq 0 ]]; then
+      echo "    none"
+    else
+      while IFS=$'\t' read -r test_command test_status test_summary; do
+        printf '    - %s: %s - %s\n' "$test_command" "$test_status" "$test_summary"
+      done < <(jq -r '
+        .tests[] |
+        [
+          (.command | gsub("[\u0000-\u001F\u007F]"; " ")),
+          .status,
+          (.summary | gsub("[\u0000-\u001F\u007F]"; " "))
+        ] |
+        @tsv
+      ' "$result_path")
+    fi
+
+    echo "  Risks:"
+    display_string_list "$result_path" '.risks' "none"
+    echo "  Blockers:"
+    display_string_list "$result_path" '.blockers' "none"
+    echo "  Model: $(single_line "$result_path" '.execution.model')"
+    echo "  Reasoning effort: $(jq -r '.execution.reasoning_effort // "unavailable"' "$result_path")"
+    echo "  Attempt: $(jq -r '.execution.attempt_count' "$result_path") of $(jq -r '.execution.max_attempts' "$result_path")"
+
+    if jq -e '.execution.usage == null' "$result_path" >/dev/null; then
+      echo "  Token usage: unavailable"
+    else
+      echo "  Token usage:"
+      echo "    Input: $(jq -r '.execution.usage.input_tokens' "$result_path")"
+      echo "    Cached input: $(jq -r '.execution.usage.cached_input_tokens' "$result_path")"
+      echo "    Output: $(jq -r '.execution.usage.output_tokens' "$result_path")"
+      echo "    Reasoning output: $(jq -r '.execution.usage.reasoning_output_tokens' "$result_path")"
+    fi
+
+    echo "  Retry safe: $(jq -r 'if .execution.retry_safe then "yes" else "no" end' "$result_path")"
+    echo "  Source repository: $(single_line "$result_path" '.execution.source_repository_path // "unavailable"')"
+    echo "  Base branch: $(single_line "$result_path" '.execution.base_branch // "unavailable"')"
+    echo "  Base commit: $(single_line "$result_path" '.execution.base_commit // "unavailable"')"
+    echo "  Final commit: $(single_line "$result_path" '.commit // "unavailable"')"
+    echo "  Worktree: $(single_line "$result_path" '.execution.worktree_path // "unavailable"')"
+    echo "  Worktree branch: $(single_line "$result_path" '.execution.worktree_branch // "unavailable"')"
+
+    if [[ "$repository_status" == "completed" ]]; then
+      echo "  Worktree present: ${worktree_presence[$index]}"
+      echo "  Integration: ${integration_states[$index]}"
+    fi
+  done
+
+  if [[ "$overall_status" == "completed" ]]; then
+    echo
+    echo "Next actions:"
+    echo "  repomux integrate --run $run_id --dry-run"
+    echo "  repomux integrate --run $run_id"
+  fi
+}
+
+report_path="$result_directory/report.md"
+
+if [[ -L "$report_path" || ( -e "$report_path" && ! -f "$report_path" ) ]]; then
+  fail "Complete report path is not a regular file: $report_path" 2
+fi
+
+report_stage="$(mktemp "$result_directory/.report.XXXXXX")"
+
+cleanup_report_stage() {
+  if [[ -n "$report_stage" && -e "$report_stage" ]]; then
+    rm -f "$report_stage"
+  fi
+}
+
+trap cleanup_report_stage EXIT
+write_complete_report >"$report_stage"
+mv "$report_stage" "$report_path"
+report_stage=""
+
+echo "RepoMux run: $overall_status"
+echo "Feature: $feature_id"
+echo "Run: $run_id"
+echo "Pushed: no | Integrated: $integrated_list | Incomplete: $incomplete_list"
 
 for ((index = 0; index < repository_count; index++)); do
   repository_key="${repository_keys[$index]}"
-  repository_path="${repository_paths[$index]}"
   result_path="${result_paths[$index]}"
   repository_status="${repository_statuses[$index]}"
-
-  echo
-  echo "Repository: $repository_key"
-  echo "  Status: $repository_status"
+  integration_state="${integration_states[$index]}"
 
   if [[ "$repository_status" == "missing" ]]; then
-    echo "  Result: missing"
+    echo "$repository_key: missing | commit unavailable | integration unavailable | blockers result missing"
+    echo "  Tokens: unavailable"
     continue
   fi
 
-  echo "  Summary: $(single_line "$result_path" '.summary')"
-  echo "  Commit: $(jq -r '.commit // "unavailable"' "$result_path")"
-  echo "  Tests:"
-
-  if [[ "$(jq '.tests | length' "$result_path")" -eq 0 ]]; then
-    echo "    none"
-  else
-    while IFS=$'\t' read -r test_command test_status test_summary; do
-      printf '    - %s: %s - %s\n' "$test_command" "$test_status" "$test_summary"
-    done < <(jq -r '
-      .tests[] |
-      [
-        (.command | gsub("[\u0000-\u001F\u007F]"; " ")),
-        .status,
-        (.summary | gsub("[\u0000-\u001F\u007F]"; " "))
-      ] |
-      @tsv
-    ' "$result_path")
-  fi
-
-  echo "  Risks:"
-  display_string_list "$result_path" '.risks' "none"
-  echo "  Blockers:"
-  display_string_list "$result_path" '.blockers' "none"
-  echo "  Model: $(single_line "$result_path" '.execution.model')"
-  echo "  Reasoning effort: $(jq -r '.execution.reasoning_effort // "unavailable"' "$result_path")"
-  echo "  Attempt: $(jq -r '.execution.attempt_count' "$result_path") of $(jq -r '.execution.max_attempts' "$result_path")"
+  commit="$(jq -r '.commit // "unavailable"' "$result_path")"
+  blockers="$(inline_string_list "$result_path" '.blockers' 'none')"
+  echo "$repository_key: $repository_status | commit $commit | integration $integration_state | blockers $blockers"
 
   if jq -e '.execution.usage == null' "$result_path" >/dev/null; then
-    echo "  Token usage: unavailable"
+    echo "  Tokens: unavailable"
   else
-    echo "  Token usage:"
-    echo "    Input: $(jq -r '.execution.usage.input_tokens' "$result_path")"
-    echo "    Cached input: $(jq -r '.execution.usage.cached_input_tokens' "$result_path")"
-    echo "    Output: $(jq -r '.execution.usage.output_tokens' "$result_path")"
-    echo "    Reasoning output: $(jq -r '.execution.usage.reasoning_output_tokens' "$result_path")"
-  fi
-
-  echo "  Retry safe: $(jq -r 'if .execution.retry_safe then "yes" else "no" end' "$result_path")"
-  echo "  Source repository: $(single_line "$result_path" '.execution.source_repository_path // "unavailable"')"
-  echo "  Base branch: $(single_line "$result_path" '.execution.base_branch // "unavailable"')"
-  echo "  Base commit: $(single_line "$result_path" '.execution.base_commit // "unavailable"')"
-  echo "  Final commit: $(single_line "$result_path" '.commit // "unavailable"')"
-  echo "  Worktree: $(single_line "$result_path" '.execution.worktree_path // "unavailable"')"
-  echo "  Worktree branch: $(single_line "$result_path" '.execution.worktree_branch // "unavailable"')"
-
-  if [[ "$repository_status" == "completed" ]]; then
-    echo "  Worktree present: ${worktree_presence[$index]}"
-    echo "  Integration: ${integration_states[$index]}"
+    input_tokens="$(jq -r '.execution.usage.input_tokens' "$result_path")"
+    cached_input_tokens="$(jq -r '.execution.usage.cached_input_tokens' "$result_path")"
+    output_tokens="$(jq -r '.execution.usage.output_tokens' "$result_path")"
+    reasoning_output_tokens="$(jq -r '.execution.usage.reasoning_output_tokens' "$result_path")"
+    echo "  Tokens: input $input_tokens | cached input $cached_input_tokens | output $output_tokens | reasoning output $reasoning_output_tokens"
   fi
 done
 
+echo "Complete report: $report_path"
+
 if [[ "$overall_status" == "completed" ]]; then
-  echo
-  echo "Next actions:"
-  echo "  repomux integrate --run $run_id --dry-run"
-  echo "  repomux integrate --run $run_id"
+  echo "Next: repomux integrate --run $run_id --dry-run"
+  echo "Then: repomux integrate --run $run_id"
   exit 0
 fi
 
