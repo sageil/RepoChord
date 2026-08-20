@@ -470,7 +470,7 @@ write_complete_report() {
 
     echo
     echo "Repository: $repository_key"
-    echo "  Status: $repository_status"
+    echo "  Status: $(markdown_code "$repository_status")"
 
     if [[ "$repository_status" == "missing" ]]; then
       echo "  Result: missing"

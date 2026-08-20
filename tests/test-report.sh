@@ -129,6 +129,7 @@ grep -Fqx "Incomplete repositories: none" "$complete_report"
 grep -Fqx "Pushed by RepoMux: no" "$complete_report"
 grep -Fqx "Repository: api" "$complete_report"
 grep -Fqx "Repository: web" "$complete_report"
+grep -Fqx '  Status: `completed`' "$complete_report"
 grep -Eq '^  Commit: `[0-9a-f]+`$' "$complete_report"
 grep -Fqx "  Summary: The fake repository agent completed the task." "$complete_report"
 grep -Fqx "    - fake test: passed - Passed." "$complete_report"
@@ -183,7 +184,7 @@ grep -Fqx "Pushed: no | Incomplete: api" "$report_output"
 grep -Eq '^api: failed \| commit unavailable \| blockers none$' "$report_output"
 grep -Fqx 'Overall status: `incomplete`' "$complete_report"
 grep -Fqx "Incomplete repositories: api" "$complete_report"
-grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx "  Status: failed"
+grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx '  Status: `failed`'
 grep -Fqx "  Retry safe: yes" "$complete_report"
 
 jq '
@@ -197,13 +198,13 @@ jq '
 ' "$api_result_backup" > "$api_result"
 run_report_expect_status 1 "$report_output"
 grep -Fqx "api: blocked | commit unavailable | blockers Approval is required." "$report_output"
-grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx "  Status: blocked"
+grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx '  Status: `blocked`'
 grep -Fqx '    - `Approval is required.`' "$complete_report"
 
 mv "$api_result" "$temporary_root/missing-api-result.json"
 run_report_expect_status 1 "$report_output"
 grep -Fqx "api: missing | commit unavailable | blockers result missing" "$report_output"
-grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx "  Status: missing"
+grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx '  Status: `missing`'
 grep -Fqx "  Result: missing" "$complete_report"
 mv "$temporary_root/missing-api-result.json" "$api_result"
 
