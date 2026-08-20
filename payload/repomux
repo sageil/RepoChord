@@ -64,6 +64,7 @@ initialize_locations() {
   fi
 
   source_skill="$repomux_data_directory/skill"
+  source_task_skill="$repomux_data_directory/task-skill"
   projects_registry="$repomux_config_directory/projects.json"
 }
 
@@ -149,6 +150,7 @@ validate_skill_directory() {
     "scripts/run-repository-agent.sh"
     "scripts/run-repository-agents.sh"
     "scripts/scaffold-feature.sh"
+    "scripts/validate-task-packet.sh"
     "scripts/report-run.sh"
     "scripts/integrate-run.sh"
     "scripts/cleanup-worktrees.sh"
@@ -184,6 +186,34 @@ validate_skill_directory() {
   for schema_path in "$skill_directory"/assets/*.schema.json; do
     jq empty "$schema_path"
   done
+}
+
+validate_task_skill_directory() {
+  local skill_directory="$1"
+  local relative_path
+  local required_files=(
+    "SKILL.md"
+    "references/request-template.md"
+    "references/repository-task-template.md"
+  )
+
+  if [[ -L "$skill_directory" ]]; then
+    fail "Refusing to use a symbolic link as a RepoMux task-authoring skill: $skill_directory"
+  fi
+
+  if [[ ! -d "$skill_directory" ]]; then
+    fail "RepoMux task-authoring skill directory does not exist: $skill_directory"
+  fi
+
+  for relative_path in "${required_files[@]}"; do
+    if [[ ! -f "$skill_directory/$relative_path" ]]; then
+      fail "Required RepoMux task-authoring skill file is missing: $relative_path"
+    fi
+  done
+
+  if ! grep -q '^name: create-repomux-task$' "$skill_directory/SKILL.md"; then
+    fail "RepoMux task-authoring SKILL.md has the wrong skill name."
+  fi
 }
 
 validate_projects_registry() {
@@ -348,11 +378,14 @@ validate_project_files() {
   local coordinate_path="$1"
   local coordinate_root
   local installed_skill
+  local installed_task_skill
 
   coordinate_root="$(canonical_git_root "$coordinate_path" "Coordination repository")"
   installed_skill="$coordinate_root/.agents/skills/repomux"
+  installed_task_skill="$coordinate_root/.agents/skills/create-repomux-task"
 
   validate_skill_directory "$source_skill"
+  validate_task_skill_directory "$source_task_skill"
 
   if [[ -L "$installed_skill" ]]; then
     fail "Refusing to use a symbolic link as a RepoMux skill: $installed_skill"
@@ -363,6 +396,16 @@ validate_project_files() {
   fi
 
   validate_skill_directory "$installed_skill"
+
+  if [[ -L "$installed_task_skill" ]]; then
+    fail "Refusing to use a symbolic link as a RepoMux task-authoring skill: $installed_task_skill"
+  fi
+
+  if [[ ! -d "$installed_task_skill" ]] || ! diff -qr "$source_task_skill" "$installed_task_skill" >/dev/null; then
+    fail "Installed project task-authoring skill differs from RepoMux: $installed_task_skill. Run repomux upgrade."
+  fi
+
+  validate_task_skill_directory "$installed_task_skill"
   validate_project_data "$coordinate_root"
 }
 
@@ -370,6 +413,7 @@ validate_upgrade_target() {
   local coordinate_path="$1"
   local coordinate_root
   local destination_skill
+  local destination_task_skill
   local expected_directory
 
   coordinate_root="$(canonical_git_root "$coordinate_path" "Coordination repository")"
@@ -393,6 +437,7 @@ validate_upgrade_target() {
   done
 
   destination_skill="$coordinate_root/.agents/skills/repomux"
+  destination_task_skill="$coordinate_root/.agents/skills/create-repomux-task"
 
   if [[ -L "$destination_skill" ]]; then
     fail "Refusing to use a symbolic link as the project skill: $destination_skill"
@@ -400,6 +445,14 @@ validate_upgrade_target() {
 
   if [[ -e "$destination_skill" && ! -d "$destination_skill" ]]; then
     fail "Project skill path is not a directory: $destination_skill"
+  fi
+
+  if [[ -L "$destination_task_skill" ]]; then
+    fail "Refusing to use a symbolic link as the project task-authoring skill: $destination_task_skill"
+  fi
+
+  if [[ -e "$destination_task_skill" && ! -d "$destination_task_skill" ]]; then
+    fail "Project task-authoring skill path is not a directory: $destination_task_skill"
   fi
 
   validate_project_data "$coordinate_root"
@@ -414,12 +467,18 @@ upgrade_project_runtime() (
   local coordinate_root
   local skills_directory
   local destination_skill
+  local destination_task_skill
   local upgrade_workspace=""
   local replacement_skill
+  local replacement_task_skill
   local previous_skill
+  local previous_task_skill
   local failed_skill
+  local failed_task_skill
   local destination_existed=false
+  local task_destination_existed=false
   local replacement_install_started=false
+  local task_replacement_install_started=false
 
   cleanup_project_upgrade() {
     local status="$?"
@@ -428,7 +487,8 @@ upgrade_project_runtime() (
     trap - EXIT INT TERM
 
     if [[ "$status" -ne 0 && -n "$upgrade_workspace" ]]; then
-      failed_skill="$upgrade_workspace/failed"
+      failed_skill="$upgrade_workspace/failed-repomux"
+      failed_task_skill="$upgrade_workspace/failed-create-repomux-task"
 
       if [[ -e "$previous_skill" ]]; then
         if [[ -e "$destination_skill" ]] && ! mv -- "$destination_skill" "$failed_skill"; then
@@ -449,6 +509,29 @@ upgrade_project_runtime() (
       then
         if ! mv -- "$destination_skill" "$failed_skill"; then
           echo "Could not remove the failed RepoMux skill during rollback: $destination_skill" >&2
+          rollback_failed=true
+        fi
+      fi
+
+      if [[ -e "$previous_task_skill" ]]; then
+        if [[ -e "$destination_task_skill" ]] && ! mv -- "$destination_task_skill" "$failed_task_skill"; then
+          echo "Could not remove the failed RepoMux task-authoring skill during rollback: $destination_task_skill" >&2
+          rollback_failed=true
+        fi
+
+        if [[ -e "$destination_task_skill" ]]; then
+          echo "Could not restore the previous RepoMux task-authoring skill because its path is occupied: $destination_task_skill" >&2
+          rollback_failed=true
+        elif ! mv -- "$previous_task_skill" "$destination_task_skill"; then
+          echo "Could not restore the previous RepoMux task-authoring skill: $previous_task_skill" >&2
+          rollback_failed=true
+        fi
+      elif [[ "$task_destination_existed" == false &&
+        "$task_replacement_install_started" == true &&
+        -e "$destination_task_skill" ]]
+      then
+        if ! mv -- "$destination_task_skill" "$failed_task_skill"; then
+          echo "Could not remove the failed RepoMux task-authoring skill during rollback: $destination_task_skill" >&2
           rollback_failed=true
         fi
       fi
@@ -474,9 +557,14 @@ upgrade_project_runtime() (
   coordinate_root="$validated_upgrade_coordinate"
   skills_directory="$coordinate_root/.agents/skills"
   destination_skill="$skills_directory/repomux"
+  destination_task_skill="$skills_directory/create-repomux-task"
 
-  if [[ -d "$destination_skill" ]] && diff -qr "$source_skill" "$destination_skill" >/dev/null; then
+  if [[ -d "$destination_skill" && -d "$destination_task_skill" ]] &&
+    diff -qr "$source_skill" "$destination_skill" >/dev/null &&
+    diff -qr "$source_task_skill" "$destination_task_skill" >/dev/null
+  then
     validate_skill_directory "$destination_skill"
+    validate_task_skill_directory "$destination_task_skill"
     echo "RepoMux project is already current: $project_name"
     exit 0
   fi
@@ -485,28 +573,48 @@ upgrade_project_runtime() (
     destination_existed=true
   fi
 
+  if [[ -d "$destination_task_skill" ]]; then
+    task_destination_existed=true
+  fi
+
   if ! upgrade_workspace="$(mktemp -d "$skills_directory/.repomux-upgrade.XXXXXX")"; then
     fail "Could not create an upgrade workspace for: $project_name"
   fi
 
-  replacement_skill="$upgrade_workspace/replacement"
-  previous_skill="$upgrade_workspace/previous"
+  replacement_skill="$upgrade_workspace/replacement-repomux"
+  replacement_task_skill="$upgrade_workspace/replacement-create-repomux-task"
+  previous_skill="$upgrade_workspace/previous-repomux"
+  previous_task_skill="$upgrade_workspace/previous-create-repomux-task"
   mkdir "$replacement_skill" || fail "Could not stage the RepoMux skill for: $project_name"
+  mkdir "$replacement_task_skill" || fail "Could not stage the RepoMux task-authoring skill for: $project_name"
   cp -R "$source_skill/." "$replacement_skill/" || fail "Could not copy the RepoMux skill for: $project_name"
+  cp -R "$source_task_skill/." "$replacement_task_skill/" || fail "Could not copy the RepoMux task-authoring skill for: $project_name"
   chmod +x "$replacement_skill"/scripts/*.sh || fail "Could not make the staged RepoMux scripts executable for: $project_name"
   validate_skill_directory "$replacement_skill"
+  validate_task_skill_directory "$replacement_task_skill"
 
   if [[ -d "$destination_skill" ]]; then
     mv -- "$destination_skill" "$previous_skill" || fail "Could not preserve the previous RepoMux skill for: $project_name"
   fi
 
+  if [[ -d "$destination_task_skill" ]]; then
+    mv -- "$destination_task_skill" "$previous_task_skill" || fail "Could not preserve the previous RepoMux task-authoring skill for: $project_name"
+  fi
+
   replacement_install_started=true
   mv -- "$replacement_skill" "$destination_skill" || fail "Could not install the RepoMux skill for: $project_name"
+  task_replacement_install_started=true
+  mv -- "$replacement_task_skill" "$destination_task_skill" || fail "Could not install the RepoMux task-authoring skill for: $project_name"
 
   validate_skill_directory "$destination_skill"
+  validate_task_skill_directory "$destination_task_skill"
 
   if ! diff -qr "$source_skill" "$destination_skill" >/dev/null; then
     fail "Upgraded project skill differs from RepoMux: $destination_skill"
+  fi
+
+  if ! diff -qr "$source_task_skill" "$destination_task_skill" >/dev/null; then
+    fail "Upgraded project task-authoring skill differs from RepoMux: $destination_task_skill"
   fi
 
   validate_project_data "$coordinate_root"
@@ -1305,6 +1413,7 @@ run_init() {
   local existing_path
   local coordinate_root
   local destination_skill
+  local destination_task_skill
   local registry_path
   local existing_coordinate
   local existing_project
@@ -1416,6 +1525,7 @@ run_init() {
 
   require_commands bash cp diff find git grep jq mktemp mv
   validate_skill_directory "$source_skill"
+  validate_task_skill_directory "$source_task_skill"
   prepare_coordinate_path "$coordinate_path" "$create_coordinate"
   coordinate_root="$prepared_coordinate_path"
 
@@ -1450,10 +1560,15 @@ run_init() {
   done
 
   destination_skill="$coordinate_root/.agents/skills/repomux"
+  destination_task_skill="$coordinate_root/.agents/skills/create-repomux-task"
   registry_path="$coordinate_root/.repomux/repositories.json"
 
   if [[ -L "$destination_skill" ]]; then
     fail "Refusing to use a symbolic link as the project skill: $destination_skill"
+  fi
+
+  if [[ -L "$destination_task_skill" ]]; then
+    fail "Refusing to use a symbolic link as the project task-authoring skill: $destination_task_skill"
   fi
 
   if [[ -L "$registry_path" ]]; then
@@ -1668,6 +1783,7 @@ run_init() {
   echo "Coordination repository: $coordinate_root"
   echo "Repository registry: $registry_path"
   echo "Skill: $destination_skill"
+  echo "Task-authoring skill: $destination_task_skill"
 }
 
 run_upgrade() {
@@ -1693,6 +1809,7 @@ run_upgrade() {
 
   require_commands bash cp diff git jq mktemp mv
   validate_skill_directory "$source_skill"
+  validate_task_skill_directory "$source_task_skill"
   validate_projects_registry
   project_count="$(jq '.projects | length' "$projects_registry")"
 

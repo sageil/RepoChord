@@ -57,10 +57,12 @@ uninstall_output="$(
 
 test ! -e "$repomux_command"
 test ! -e "$installed_data/skill"
+test ! -e "$installed_data/task-skill"
 test ! -e "$installed_data"
 test -f "$projects_registry"
 test "$(jq -c . "$projects_registry")" = "$registry_before_uninstall"
 test -d "$coordinate_repository/.agents/skills/repomux"
+test -d "$coordinate_repository/.agents/skills/create-repomux-task"
 test "$(git -C "$product_repository" rev-parse HEAD)" = "$product_commit"
 
 if [[ "$uninstall_output" != *"Configuration preserved: $projects_registry"* ]]; then
@@ -90,6 +92,7 @@ HOME="$test_home" \
 
 test ! -e "$repomux_command"
 test ! -e "$installed_data/skill"
+test ! -e "$installed_data/task-skill"
 test -f "$projects_registry"
 
 HOME="$test_home" \

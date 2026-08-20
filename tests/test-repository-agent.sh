@@ -67,6 +67,7 @@ HOME="$test_home" \
 scaffolder="$coordinate_repository/.agents/skills/repomux/scripts/scaffold-feature.sh"
 runner="$coordinate_repository/.agents/skills/repomux/scripts/run-repository-agents.sh"
 repository_agent="$coordinate_repository/.agents/skills/repomux/scripts/run-repository-agent.sh"
+packet_fixture="$test_directory/fixtures/complete-scaffolded-packet.sh"
 
 api_base_commit="$(git -C "$api_repository" rev-parse HEAD)"
 web_base_commit="$(git -C "$web_repository" rev-parse HEAD)"
@@ -82,6 +83,7 @@ for product_repository in "$api_repository" "$web_repository"; do
 done
 
 "$scaffolder" PROJECT-123 api web >/dev/null
+"$packet_fixture" "$coordinate_repository" PROJECT-123
 
 assignments_file="$coordinate_repository/tasks/PROJECT-123/assignments.txt"
 api_assignment="$temporary_root/api-assignment.txt"

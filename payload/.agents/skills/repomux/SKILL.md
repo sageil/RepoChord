@@ -34,11 +34,8 @@ No other assistant-authored content is permitted in that response.
 ## Prepare the proposal
 
 1. Read the feature request and `.repomux/repositories.json`.
-2. Inspect enough of each participating repository to identify its execution path and focused verification command.
-3. Resolve the feature ID from an explicit ID, an unambiguous existing feature match, or a short stable title, in that order.
-4. If the feature files do not exist, create them with `scripts/scaffold-feature.sh`.
-5. Complete the request and one bounded task file for each participating repository.
-6. Define the repository outcomes, cross-repository contract, state transitions, invariants, authorization, failure and restart behavior, acceptance criteria, verification commands, and commit messages.
+2. Read and apply `../create-repomux-task/SKILL.md` to inspect the participating repositories, create the feature packet, and validate it.
+3. Do not present the proposal until `scripts/validate-task-packet.sh` passes for the current task packet.
 
 Write every repository commit message as a Conventional Commit using `<type>: <description>` or `<type>(<scope>): <description>`.
 

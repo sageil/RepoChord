@@ -47,6 +47,27 @@ run_report_expect_status() {
   fi
 }
 
+assert_repository_report_line() {
+  local repository_key="$1"
+  local expected_line="$2"
+  local report_path="$3"
+
+  awk -v repository_key="$repository_key" '
+    $0 == "Repository: " repository_key {
+      in_repository = 1
+      next
+    }
+
+    /^Repository: / {
+      in_repository = 0
+    }
+
+    in_repository {
+      print
+    }
+  ' "$report_path" | grep -Fqx "$expected_line"
+}
+
 api_repository="$temporary_root/api"
 web_repository="$temporary_root/web"
 coordinate_repository="$temporary_root/coordinate"
@@ -86,9 +107,11 @@ FAKE_ABSOLUTE_GIT="$(command -v git)"
 
 scaffolder="$coordinate_repository/.agents/skills/repomux/scripts/scaffold-feature.sh"
 runner="$coordinate_repository/.agents/skills/repomux/scripts/run-repository-agents.sh"
+packet_fixture="$test_directory/fixtures/complete-scaffolded-packet.sh"
 assignments_file="$coordinate_repository/tasks/REPORT-123/assignments.txt"
 
 "$scaffolder" REPORT-123 api web >/dev/null
+"$packet_fixture" "$coordinate_repository" REPORT-123
 
 runner_output="$(
   PATH="$fake_bin:$PATH" \
@@ -116,8 +139,8 @@ fi
 
 grep -Fqx "RepoMux run: completed" "$report_output"
 grep -Fqx "Pushed: no | Incomplete: none" "$report_output"
-grep -Eq '^api: completed \| commit [0-9a-f]+ \| blockers none$' "$report_output"
-grep -Eq '^web: completed \| commit [0-9a-f]+ \| blockers none$' "$report_output"
+grep -Eq '^api: completed \| commit [0-9a-f]+ \| integration pending \| blockers none$' "$report_output"
+grep -Eq '^web: completed \| commit [0-9a-f]+ \| integration pending \| blockers none$' "$report_output"
 grep -Fqx "  Tokens: input 100 | cached input 40 | output 20 | reasoning output 5" "$report_output"
 grep -Fqx "Complete report: $complete_report" "$report_output"
 grep -Fqx "Next: repomux integrate --run $run_id --dry-run" "$report_output"
@@ -149,13 +172,26 @@ grep -Fqx "  Final commit: \`$api_final_commit\`" "$complete_report"
 grep -Fqx "  Worktree: \`$api_worktree\`" "$complete_report"
 grep -Fqx "  Worktree branch: \`repomux/$run_id/api\`" "$complete_report"
 grep -Fqx '  Worktree present: `yes`' "$complete_report"
+assert_repository_report_line api '  Integration: `pending`' "$complete_report"
+assert_repository_report_line web '  Integration: `pending`' "$complete_report"
 grep -Fqx "  \`repomux integrate --run $run_id --dry-run\`" "$complete_report"
 grep -Fqx "  \`repomux integrate --run $run_id\`" "$complete_report"
 
 git -C "$api_repository" merge --ff-only "$api_final_commit" >/dev/null
 run_report_expect_status 0 "$report_output"
 grep -Fqx "Pushed: no | Incomplete: none" "$report_output"
-grep -Eq '^api: completed \| commit [0-9a-f]+ \| blockers none$' "$report_output"
+grep -Eq '^api: completed \| commit [0-9a-f]+ \| integration integrated \| blockers none$' "$report_output"
+grep -Eq '^web: completed \| commit [0-9a-f]+ \| integration pending \| blockers none$' "$report_output"
+assert_repository_report_line api '  Integration: `integrated`' "$complete_report"
+assert_repository_report_line web '  Integration: `pending`' "$complete_report"
+
+api_base_tree="$(git -C "$api_repository" rev-parse "$api_base_commit^{tree}")"
+api_diverged_commit="$(printf 'test: diverge api base\n' | git -C "$api_repository" commit-tree "$api_base_tree" -p "$api_base_commit")"
+git -C "$api_repository" update-ref refs/heads/main "$api_diverged_commit"
+run_report_expect_status 0 "$report_output"
+grep -Eq '^api: completed \| commit [0-9a-f]+ \| integration diverged \| blockers none$' "$report_output"
+assert_repository_report_line api '  Integration: `diverged`' "$complete_report"
+git -C "$api_repository" update-ref refs/heads/main "$api_final_commit"
 
 api_result="$coordinate_repository/.repomux/results/$run_id/api.json"
 api_result_backup="$temporary_root/api-result.json"
@@ -181,7 +217,7 @@ jq '
 run_report_expect_status 1 "$report_output"
 grep -Fqx "RepoMux run: incomplete" "$report_output"
 grep -Fqx "Pushed: no | Incomplete: api" "$report_output"
-grep -Eq '^api: failed \| commit unavailable \| blockers none$' "$report_output"
+grep -Eq '^api: failed \| commit unavailable \| integration unavailable \| blockers none$' "$report_output"
 grep -Fqx 'Overall status: `incomplete`' "$complete_report"
 grep -Fqx "Incomplete repositories: api" "$complete_report"
 grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx '  Status: `failed`'
@@ -197,7 +233,7 @@ jq '
   .execution.retry_safe = false
 ' "$api_result_backup" > "$api_result"
 run_report_expect_status 1 "$report_output"
-grep -Fqx "api: blocked | commit unavailable | blockers Approval is required." "$report_output"
+grep -Fqx "api: blocked | commit unavailable | integration unavailable | blockers Approval is required." "$report_output"
 grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx '  Status: `blocked`'
 grep -Fqx '    - `Approval is required.`' "$complete_report"
 

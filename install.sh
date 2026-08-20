@@ -218,7 +218,9 @@ done
 installer_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 source_command="$installer_directory/payload/repomux"
 source_skill="$installer_directory/payload/.agents/skills/repomux"
+source_task_skill="$installer_directory/payload/.agents/skills/create-repomux-task"
 skill_validator="$installer_directory/scripts/validate-skill.sh"
+task_skill_validator="$installer_directory/scripts/validate-task-skill.sh"
 
 if [[ ! -f "$source_command" ]]; then
   echo "RepoMux command payload is missing: $source_command" >&2
@@ -230,8 +232,18 @@ if [[ ! -d "$source_skill" ]]; then
   exit 1
 fi
 
+if [[ ! -d "$source_task_skill" ]]; then
+  echo "RepoMux task-authoring skill payload is missing: $source_task_skill" >&2
+  exit 1
+fi
+
 if [[ ! -x "$skill_validator" ]]; then
   echo "RepoMux skill validator is missing or not executable: $skill_validator" >&2
+  exit 1
+fi
+
+if [[ ! -x "$task_skill_validator" ]]; then
+  echo "RepoMux task-authoring skill validator is missing or not executable: $task_skill_validator" >&2
   exit 1
 fi
 
@@ -241,6 +253,7 @@ if [[ ! -x "$source_command" ]]; then
 fi
 
 "$skill_validator" "$source_skill" >/dev/null
+"$task_skill_validator" "$source_task_skill" >/dev/null
 
 if [[ -e "$bin_directory" && ! -d "$bin_directory" ]]; then
   echo "Command directory is not a directory: $bin_directory" >&2
@@ -264,6 +277,7 @@ fi
 
 command_path="$bin_directory/repomux"
 installed_skill="$data_directory/skill"
+installed_task_skill="$data_directory/task-skill"
 projects_registry="$config_directory/projects.json"
 
 if [[ -L "$command_path" ]]; then
@@ -273,6 +287,11 @@ fi
 
 if [[ -L "$installed_skill" ]]; then
   echo "Refusing to use a symbolic link as the RepoMux skill: $installed_skill" >&2
+  exit 1
+fi
+
+if [[ -L "$installed_task_skill" ]]; then
+  echo "Refusing to use a symbolic link as the RepoMux task-authoring skill: $installed_task_skill" >&2
   exit 1
 fi
 
@@ -301,8 +320,14 @@ if [[ -e "$installed_skill" ]] && ! diff -qr "$source_skill" "$installed_skill" 
   exit 1
 fi
 
+if [[ -e "$installed_task_skill" ]] && ! diff -qr "$source_task_skill" "$installed_task_skill" >/dev/null; then
+  echo "Installed RepoMux task-authoring skill differs from this package: $installed_task_skill" >&2
+  exit 1
+fi
+
 command_stage=""
 skill_stage=""
+task_skill_stage=""
 projects_stage=""
 
 cleanup() {
@@ -312,6 +337,10 @@ cleanup() {
 
   if [[ -n "$skill_stage" ]]; then
     rm -rf -- "$skill_stage"
+  fi
+
+  if [[ -n "$task_skill_stage" ]]; then
+    rm -rf -- "$task_skill_stage"
   fi
 
   if [[ -n "$projects_stage" ]]; then
@@ -327,6 +356,7 @@ data_directory="$(cd -- "$data_directory" && pwd -P)"
 config_directory="$(cd -- "$config_directory" && pwd -P)"
 command_path="$bin_directory/repomux"
 installed_skill="$data_directory/skill"
+installed_task_skill="$data_directory/task-skill"
 projects_registry="$config_directory/projects.json"
 
 projects_stage="$(mktemp "$config_directory/.projects.XXXXXX")"
@@ -400,6 +430,14 @@ if [[ ! -e "$installed_skill" ]]; then
   "$skill_validator" "$skill_stage" >/dev/null
   mv -- "$skill_stage" "$installed_skill"
   skill_stage=""
+fi
+
+if [[ ! -e "$installed_task_skill" ]]; then
+  task_skill_stage="$(mktemp -d "$data_directory/.task-skill.XXXXXX")"
+  cp -R "$source_task_skill/." "$task_skill_stage/"
+  "$task_skill_validator" "$task_skill_stage" >/dev/null
+  mv -- "$task_skill_stage" "$installed_task_skill"
+  task_skill_stage=""
 fi
 
 chmod +x "$installed_skill"/scripts/*.sh

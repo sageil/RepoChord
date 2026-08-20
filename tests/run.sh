@@ -39,6 +39,10 @@ echo "Validating the RepoMux skill"
 bash "$repository_directory/scripts/validate-skill.sh" \
   "$repository_directory/payload/.agents/skills/repomux"
 
+echo "Validating the RepoMux task-authoring skill"
+bash "$repository_directory/scripts/validate-task-skill.sh" \
+  "$repository_directory/payload/.agents/skills/create-repomux-task"
+
 echo "Checking the Git diff"
 git -C "$repository_directory" diff --check
 

@@ -47,6 +47,7 @@ HOME="$test_home" \
 
 repomux_command="$command_bin/repomux"
 source_skill="$test_home/.local/share/repomux/skill"
+source_task_skill="$test_home/.local/share/repomux/task-skill"
 projects_registry="$test_home/.config/repomux/projects.json"
 
 HOME="$test_home" "$repomux_command" init \
@@ -92,6 +93,8 @@ grep -Fqx "Upgraded RepoMux project: second" <<< "$upgrade_output"
 grep -Fqx "RepoMux upgrade complete: 2 registered projects are current." <<< "$upgrade_output"
 diff -qr "$source_skill" "$first_coordinate/.agents/skills/repomux" >/dev/null
 diff -qr "$source_skill" "$second_coordinate/.agents/skills/repomux" >/dev/null
+diff -qr "$source_task_skill" "$first_coordinate/.agents/skills/create-repomux-task" >/dev/null
+diff -qr "$source_task_skill" "$second_coordinate/.agents/skills/create-repomux-task" >/dev/null
 test ! -e "$first_coordinate/.agents/skills/repomux/obsolete.txt"
 grep -Fqx "keep request" "$first_coordinate/requests/keep.md"
 grep -Fqx "keep task" "$first_coordinate/tasks/keep.md"
@@ -122,15 +125,18 @@ missing_skill_output="$(HOME="$test_home" "$repomux_command" upgrade)"
 grep -Fqx "RepoMux project is already current: first" <<< "$missing_skill_output"
 grep -Fqx "Upgraded RepoMux project: second" <<< "$missing_skill_output"
 diff -qr "$source_skill" "$second_coordinate/.agents/skills/repomux" >/dev/null
+diff -qr "$source_task_skill" "$second_coordinate/.agents/skills/create-repomux-task" >/dev/null
 
 printf '\nrollback test\n' >> "$second_coordinate/.agents/skills/repomux/SKILL.md"
+printf '\nrollback task skill test\n' >> "$second_coordinate/.agents/skills/create-repomux-task/SKILL.md"
 second_stale_hash="$(git hash-object "$second_coordinate/.agents/skills/repomux/SKILL.md")"
+second_task_stale_hash="$(git hash-object "$second_coordinate/.agents/skills/create-repomux-task/SKILL.md")"
 fake_bin="$temporary_root/fake-bin"
 mkdir "$fake_bin"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'set -euo pipefail' \
-  'if [[ "$2" == */replacement && "$3" == */.agents/skills/repomux ]]; then' \
+  'if [[ "$2" == */replacement-repomux && "$3" == */.agents/skills/repomux ]]; then' \
   '  /bin/mv "$@"' \
   '  /bin/rm -f -- "$3/scripts/report-run.sh"' \
   '  exit 0' \
@@ -147,6 +153,7 @@ fi
 grep -Fqx "RepoMux project is already current: first" "$temporary_root/rollback.out"
 grep -Fq "RepoMux could not upgrade 1 of 2 registered projects." "$temporary_root/rollback.out"
 test "$second_stale_hash" = "$(git hash-object "$second_coordinate/.agents/skills/repomux/SKILL.md")"
+test "$second_task_stale_hash" = "$(git hash-object "$second_coordinate/.agents/skills/create-repomux-task/SKILL.md")"
 
 if compgen -G "$second_coordinate/.agents/skills/.repomux-upgrade.*" >/dev/null; then
   echo "RepoMux left an upgrade workspace after rollback." >&2
@@ -191,6 +198,7 @@ HOME="$test_home" "$repomux_command" init \
   >/dev/null
 
 diff -qr "$source_skill" "$first_coordinate/.agents/skills/repomux" >/dev/null
+diff -qr "$source_task_skill" "$first_coordinate/.agents/skills/create-repomux-task" >/dev/null
 test "$(jq -r '.projects | length' "$projects_registry")" = "1"
 test "$(jq -r '.projects[0].name' "$projects_registry")" = "first"
 

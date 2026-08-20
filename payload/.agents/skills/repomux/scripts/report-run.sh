@@ -525,6 +525,7 @@ write_complete_report() {
 
     if [[ "$repository_status" == "completed" ]]; then
       echo "  Worktree present: $(markdown_code "${worktree_presence[$index]}")"
+      echo "  Integration: $(markdown_code "${integration_states[$index]}")"
     fi
   done
 
@@ -572,8 +573,9 @@ for ((index = 0; index < repository_count; index++)); do
   fi
 
   commit="$(jq -r '.commit // "unavailable"' "$result_path")"
+  integration_state="${integration_states[$index]}"
   blockers="$(inline_string_list "$result_path" '.blockers' 'none')"
-  echo "$repository_key: $repository_status | commit $commit | blockers $blockers"
+  echo "$repository_key: $repository_status | commit $commit | integration $integration_state | blockers $blockers"
 
   if jq -e '.execution.usage == null' "$result_path" >/dev/null; then
     echo "  Tokens: unavailable"

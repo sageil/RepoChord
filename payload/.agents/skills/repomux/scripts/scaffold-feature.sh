@@ -143,17 +143,12 @@ staging_directory=""
 request_path=""
 task_directory=""
 assignment_path=""
-request_installed=false
 tasks_installed=false
 
 # shellcheck disable=SC2329
 cleanup() {
   if [[ "$tasks_installed" == true && -n "$task_directory" ]]; then
     rm -rf -- "$task_directory"
-  fi
-
-  if [[ "$request_installed" == true && -n "$request_path" ]]; then
-    rm -f -- "$request_path"
   fi
 
   if [[ -n "$staging_directory" ]]; then
@@ -288,7 +283,8 @@ for repository_key in "$@"; do
 done
 
 if [[ "$reuse_existing_feature" == true ]]; then
-  if [[ -L "$request_path" || ! -f "$request_path" || \
+  if [[ -L "$request_path" || \
+    ( -e "$request_path" && ! -f "$request_path" ) || \
     -L "$task_directory" || ! -d "$task_directory" || \
     -L "$assignment_path" || ! -f "$assignment_path" ]]
   then
@@ -304,60 +300,11 @@ fi
 
 staging_directory="$(mktemp -d "$coordinate_root/.repomux-feature.${feature_id}.XXXXXX")"
 
-mkdir -p "$staging_directory/requests" "$staging_directory/tasks/$feature_id"
-
-{
-  printf '# %s\n\n' "$feature_id"
-  printf '## User outcome\n\n'
-
-  if [[ -n "$feature_title" ]]; then
-    printf '%s\n\n' "$feature_title"
-  else
-    printf '<Describe the user-visible or operational outcome.>\n\n'
-  fi
-
-  printf '## Repositories\n\n'
-
-  for ((index = 0; index < ${#repository_keys[@]}; index++)); do
-    printf -- '- `%s`: `%s`\n' "${repository_keys[$index]}" "${repository_paths[$index]}"
-  done
-
-  printf '\n## Shared contract\n\n'
-  printf '<Define API, event, schema, version, or file contracts shared by repositories.>\n\n'
-  printf '## State transitions and invariants\n\n'
-  printf '<Define normal states, failure states, restart behavior, and invariants.>\n\n'
-  printf '## Authorization\n\n'
-  printf '<Define the identities and permissions required for each operation.>\n\n'
-  printf '## Completion rules\n\n'
-  printf 'All required repositories must complete their acceptance criteria and focused tests.\n'
-  printf 'RepoMux creates local commits after successful repository-agent verification.\n'
-  printf 'Repository agents must not stage, commit, push, or merge changes.\n'
-} > "$staging_directory/requests/$feature_id.md"
+mkdir -p "$staging_directory/tasks/$feature_id"
 
 for ((index = 0; index < ${#repository_keys[@]}; index++)); do
   repository_key="${repository_keys[$index]}"
   repository_path="${repository_paths[$index]}"
-  task_path="$staging_directory/tasks/$feature_id/$repository_key.md"
-
-  {
-    printf '# %s task for %s\n\n' "$feature_id" "$repository_key"
-    printf '## Repository\n\n'
-    printf 'Repository key: `%s`\n\n' "$repository_key"
-    printf 'Repository path: `%s`\n\n' "$repository_path"
-    printf '## Goal\n\n'
-    printf '<Define the bounded repository outcome.>\n\n'
-    printf '## Shared contract\n\n'
-    printf '<Copy the exact relevant contract from the feature request.>\n\n'
-    printf '## Acceptance criteria\n\n'
-    printf -- '- <Add observable acceptance criteria.>\n\n'
-    printf '## Required verification\n\n'
-    printf '`<Add focused test command.>`\n\n'
-    printf '## Commit\n\n'
-    printf 'RepoMux creates the commit only after all acceptance criteria and required tests pass.\n\n'
-    printf 'Commit message: `<add commit message>`\n\n'
-    printf 'Do not stage, commit, push, merge, or rebase.\n'
-  } > "$task_path"
-
   printf '%s|%s|%s\n' \
     "$repository_key" \
     "$repository_path" \
@@ -366,8 +313,6 @@ for ((index = 0; index < ${#repository_keys[@]}; index++)); do
 done
 
 mkdir -p "$coordinate_root/requests" "$coordinate_root/tasks"
-mv -- "$staging_directory/requests/$feature_id.md" "$request_path"
-request_installed=true
 mv -- "$staging_directory/tasks/$feature_id" "$task_directory"
 tasks_installed=true
 

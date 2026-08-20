@@ -74,6 +74,8 @@ test ! -L "$repomux_command"
 test -d "$installed_data/skill"
 test ! -L "$installed_data/skill"
 test -x "$installed_data/skill/scripts/report-run.sh"
+test -d "$installed_data/task-skill"
+test ! -L "$installed_data/task-skill"
 
 jq -e '
   .version == 1 and
@@ -277,6 +279,8 @@ HOME="$test_home" "$repomux_command" init \
 
 test -d "$coordinate_repository/.agents/skills/repomux"
 test ! -L "$coordinate_repository/.agents/skills/repomux"
+test -d "$coordinate_repository/.agents/skills/create-repomux-task"
+test ! -L "$coordinate_repository/.agents/skills/create-repomux-task"
 test -f "$coordinate_repository/.repomux/repositories.json"
 test -f "$coordinate_repository/.repomux/results/.gitignore"
 test ! -e "$coordinate_repository/start-coordinator.sh"
@@ -729,18 +733,18 @@ fi
 test ! -e "$conflict_coordinate_repository/.agents/skills/repomux"
 
 scaffolder="$coordinate_repository/.agents/skills/repomux/scripts/scaffold-feature.sh"
+packet_fixture="$test_directory/fixtures/complete-scaffolded-packet.sh"
 
 "$scaffolder" PROJECT-123 api web >/dev/null
 
-test -f "$coordinate_repository/requests/PROJECT-123.md"
-test -f "$coordinate_repository/tasks/PROJECT-123/api.md"
-test -f "$coordinate_repository/tasks/PROJECT-123/web.md"
+test ! -e "$coordinate_repository/requests/PROJECT-123.md"
+test ! -e "$coordinate_repository/tasks/PROJECT-123/api.md"
+test ! -e "$coordinate_repository/tasks/PROJECT-123/web.md"
 test -f "$coordinate_repository/tasks/PROJECT-123/assignments.txt"
 
 "$scaffolder" editable-shipping-address api web >/dev/null
 existing_request="$coordinate_repository/requests/editable-shipping-address.md"
 existing_assignments="$coordinate_repository/tasks/editable-shipping-address/assignments.txt"
-existing_request_hash="$(git hash-object "$existing_request")"
 existing_assignments_hash="$(git hash-object "$existing_assignments")"
 resolved_output="$("$scaffolder" --title "Editable shipping address" api web)"
 resolved_request_path="${resolved_output%%$'\n'*}"
@@ -755,10 +759,10 @@ test "$resolved_request_path" = "$existing_request"
 test "$resolved_assignment_path" = "$existing_assignments"
 test "$case_variant_request_path" = "$existing_request"
 test "$case_variant_assignment_path" = "$existing_assignments"
-test "$existing_request_hash" = "$(git hash-object "$existing_request")"
+test ! -e "$existing_request"
 test "$existing_assignments_hash" = "$(git hash-object "$existing_assignments")"
 
-if find "$coordinate_repository/requests" -maxdepth 1 -name 'editable-shipping-address-*.md' -print -quit | grep -q .; then
+if find "$coordinate_repository/tasks" -maxdepth 1 -name 'editable-shipping-address-*' -print -quit | grep -q .; then
   echo "Scaffolder created a duplicate for an existing normalized feature title." >&2
   exit 1
 fi
@@ -781,9 +785,9 @@ then
 fi
 
 test "$generated_assignment_path" = "$coordinate_repository/tasks/$generated_feature_id/assignments.txt"
-grep -Fqx "Customer order cancellation" "$generated_request_path"
-test -f "$coordinate_repository/tasks/$generated_feature_id/api.md"
-test -f "$coordinate_repository/tasks/$generated_feature_id/web.md"
+test ! -e "$generated_request_path"
+test ! -e "$coordinate_repository/tasks/$generated_feature_id/api.md"
+test ! -e "$coordinate_repository/tasks/$generated_feature_id/web.md"
 
 second_generated_output="$("$scaffolder" --title "Customer order cancellation" api web)"
 second_generated_request_path="${second_generated_output%%$'\n'*}"
@@ -799,6 +803,8 @@ if [[ -n "$(find "$coordinate_repository" -maxdepth 1 -name '.repomux-feature-id
   echo "Scaffolder left an identifier reservation behind." >&2
   exit 1
 fi
+
+"$packet_fixture" "$coordinate_repository" PROJECT-123
 
 touch "$api_repository/preflight-dirty.tmp"
 runner="$coordinate_repository/.agents/skills/repomux/scripts/run-repository-agents.sh"
@@ -833,6 +839,7 @@ HOME="$test_home" "$repomux_command" init \
   >/dev/null
 
 diff -qr "$installed_data/skill" "$coordinate_repository/.agents/skills/repomux" >/dev/null
+diff -qr "$installed_data/task-skill" "$coordinate_repository/.agents/skills/create-repomux-task" >/dev/null
 test ! -e "$coordinate_repository/.agents/skills/repomux/obsolete.txt"
 
 echo "Installer tests passed."

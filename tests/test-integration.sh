@@ -72,9 +72,11 @@ FAKE_ABSOLUTE_GIT="$(command -v git)"
 
 scaffolder="$coordinate_repository/.agents/skills/repomux/scripts/scaffold-feature.sh"
 runner="$coordinate_repository/.agents/skills/repomux/scripts/run-repository-agents.sh"
+packet_fixture="$test_directory/fixtures/complete-scaffolded-packet.sh"
 run_id="PROJECT-INTEGRATE-run-001"
 
 "$scaffolder" PROJECT-INTEGRATE api web >/dev/null
+"$packet_fixture" "$coordinate_repository" PROJECT-INTEGRATE
 
 PATH="$fake_bin:$PATH" \
 FAKE_CODEX_MODE=completed \
@@ -330,6 +332,7 @@ rm -f -- "$web_repository/local-work.txt"
 
 cancel_run_id="PROJECT-CANCEL-run-001"
 "$scaffolder" PROJECT-CANCEL api web >/dev/null
+"$packet_fixture" "$coordinate_repository" PROJECT-CANCEL
 
 PATH="$fake_bin:$PATH" \
 FAKE_CODEX_MODE=completed \
@@ -372,6 +375,7 @@ fi
 
 incomplete_run_id="PROJECT-INCOMPLETE-run-001"
 "$scaffolder" PROJECT-INCOMPLETE api web >/dev/null
+"$packet_fixture" "$coordinate_repository" PROJECT-INCOMPLETE
 
 if PATH="$fake_bin:$PATH" \
   FAKE_CODEX_MODE=fail_unchanged \
@@ -406,6 +410,7 @@ test "$(git -C "$web_repository" rev-parse master)" = "$incomplete_web_base"
 
 collision_run_id="PROJECT-COLLISION-run-001"
 "$scaffolder" PROJECT-COLLISION api web >/dev/null
+"$packet_fixture" "$coordinate_repository" PROJECT-COLLISION
 
 PATH="$fake_bin:$PATH" \
 FAKE_CODEX_MODE=completed \
@@ -439,6 +444,7 @@ grep -Fqx "preserve this ignored local file" "$api_repository/$collision_file"
 
 diverged_run_id="PROJECT-DIVERGED-run-001"
 "$scaffolder" PROJECT-DIVERGED api web >/dev/null
+"$packet_fixture" "$coordinate_repository" PROJECT-DIVERGED
 
 PATH="$fake_bin:$PATH" \
 FAKE_CODEX_MODE=completed \

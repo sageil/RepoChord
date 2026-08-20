@@ -44,7 +44,8 @@ Unless you change them, RepoMux installs with these settings:
 | Parallel repository agents | `2` |
 | Maximum attempts | `3` |
 | Executable script | `~/.local/bin/repomux` |
-| Shared skill | `~/.local/share/repomux/skill` |
+| Shared coordinator skill | `~/.local/share/repomux/skill` |
+| Shared task-authoring skill | `~/.local/share/repomux/task-skill` |
 | Project registry | `~/.config/repomux/projects.json` |
 
 You can use `minimal`, `low`, `medium`, `high`, or `xhigh`.
@@ -107,7 +108,7 @@ Run the uninstall script from the cloned RepoMux repository:
 ./uninstall.sh
 ```
 
-This removes the `repomux` command and shared skill but keeps your project registry.
+This removes the `repomux` command and both shared skills but keeps your project registry.
 It also keeps all coordination repositories, product repositories, worktrees, branches, commits, and results.
 
 If you installed the `repomux` command in a custom directory, pass the same directory when you uninstall it:
@@ -169,7 +170,9 @@ Initialization creates the following structure:
 
 ```text
 acme-commerce-coordinate/
-├── .agents/skills/repomux/
+├── .agents/skills/
+│   ├── create-repomux-task/
+│   └── repomux/
 ├── .repomux/
 │   ├── repositories.json
 │   ├── results/.gitignore
@@ -210,8 +213,10 @@ Codex finds the participating repositories and reads the relevant code before it
 
 ### 2. See how the work will be divided
 
-Codex creates one feature request and one focused assignment for each participating repository.
-The assignments describe the API behavior, storefront behavior, checks, and local commit messages before any product code changes.
+Codex applies the RepoMux task-authoring skill to create one feature request and one focused assignment for each participating repository.
+The repository tasks describe the API behavior, storefront behavior, checks, and local commit messages before any product code changes.
+
+RepoMux validates the task-packet structure before it presents the proposal.
 
 ![Prepare the API and storefront delivery-instructions assignments](assets/workflow-screen-captures/prepare-delivery-instructions-assignments.png)
 
@@ -494,7 +499,7 @@ repomux cleanup \
 
 The coordinator normally runs these scripts for you. Use them directly only for diagnosis or external automation.
 
-Scaffold a new feature to create its requirements and related tasks:
+Scaffold a new feature to reserve its feature ID and create its assignments metadata:
 
 ```bash
 bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/scaffold-feature.sh \
@@ -503,8 +508,14 @@ bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/scaffold-feat
   web
 ```
 
-The script prints the request-file path followed by the assignments-file path.
-Complete the generated request and repository task files before starting repository agents.
+The script prints the target request-file path followed by the assignments-file path.
+It does not create placeholder specification files.
+Write the completed request and repository task files once, then validate them:
+
+```bash
+bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/validate-task-packet.sh \
+  /work/acme-commerce-coordinate/tasks/editable-delivery-instructions-on-orders-grfhdd/assignments.txt
+```
 
 Start repository agents and generate the run ID:
 

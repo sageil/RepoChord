@@ -120,6 +120,7 @@ fi
 
 command_path="$bin_directory/repomux"
 installed_skill="$data_directory/skill"
+installed_task_skill="$data_directory/task-skill"
 projects_registry="$config_directory/projects.json"
 
 if [[ -d "$command_path" && ! -L "$command_path" ]]; then
@@ -134,6 +135,7 @@ fi
 
 command_removed=false
 skill_removed=false
+task_skill_removed=false
 config_removed=false
 
 if [[ -e "$command_path" || -L "$command_path" ]]; then
@@ -150,6 +152,17 @@ elif [[ -d "$installed_skill" ]]; then
 elif [[ -e "$installed_skill" ]]; then
   rm -f -- "$installed_skill"
   skill_removed=true
+fi
+
+if [[ -L "$installed_task_skill" ]]; then
+  rm -f -- "$installed_task_skill"
+  task_skill_removed=true
+elif [[ -d "$installed_task_skill" ]]; then
+  rm -rf -- "$installed_task_skill"
+  task_skill_removed=true
+elif [[ -e "$installed_task_skill" ]]; then
+  rm -f -- "$installed_task_skill"
+  task_skill_removed=true
 fi
 
 if [[ "$purge_config" == true ]]; then
@@ -180,6 +193,12 @@ if [[ "$skill_removed" == true ]]; then
   echo "Shared skill removed: $installed_skill"
 else
   echo "Shared skill was not installed: $installed_skill"
+fi
+
+if [[ "$task_skill_removed" == true ]]; then
+  echo "Task-authoring skill removed: $installed_task_skill"
+else
+  echo "Task-authoring skill was not installed: $installed_task_skill"
 fi
 
 if [[ "$purge_config" == true ]]; then
