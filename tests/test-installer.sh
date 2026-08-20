@@ -77,6 +77,29 @@ test -x "$installed_data/skill/scripts/report-run.sh"
 test -d "$installed_data/task-skill"
 test ! -L "$installed_data/task-skill"
 
+printf '\n# old RepoMux command\n' >> "$repomux_command"
+printf '\nOld RepoMux skill content.\n' >> "$installed_data/skill/SKILL.md"
+printf '\nOld RepoMux task skill content.\n' >> "$installed_data/task-skill/SKILL.md"
+
+if HOME="$test_home" \
+  "$repository_directory/install.sh" \
+    --bin-dir "$command_bin" \
+    >/dev/null 2>&1
+then
+  echo "Installer unexpectedly replaced an existing RepoMux installation without --upgrade." >&2
+  exit 1
+fi
+
+HOME="$test_home" \
+"$repository_directory/install.sh" \
+  --upgrade \
+  --bin-dir "$command_bin" \
+  >/dev/null
+
+diff -q "$repository_directory/payload/repomux" "$repomux_command" >/dev/null
+diff -qr "$repository_directory/payload/.agents/skills/repomux" "$installed_data/skill" >/dev/null
+diff -qr "$repository_directory/payload/.agents/skills/create-repomux-task" "$installed_data/task-skill" >/dev/null
+
 jq -e '
   .version == 1 and
   .defaults == {

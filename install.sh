@@ -3,7 +3,93 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: install.sh [--bin-dir <absolute-directory>] [--default-model <model>] [--default-coordinator-reasoning-effort <effort>] [--default-repository-agent-reasoning-effort <effort>] [--default-max-parallel <count>]" >&2
+  echo "Usage: install.sh [--upgrade] [--bin-dir <absolute-directory>] [--default-model <model>] [--default-coordinator-reasoning-effort <effort>] [--default-repository-agent-reasoning-effort <effort>] [--default-max-parallel <count>]" >&2
+}
+
+is_repomux_command() {
+  local path="$1"
+
+  [[ -f "$path" ]] &&
+    grep -Fq 'repomux init -p <name>' "$path" &&
+    grep -Fq 'source_skill="$repomux_data_directory/skill"' "$path"
+}
+
+is_repomux_skill() {
+  local path="$1"
+
+  [[ -d "$path" && -f "$path/SKILL.md" ]] && grep -Fq 'name: repomux' "$path/SKILL.md"
+}
+
+is_repomux_task_skill() {
+  local path="$1"
+
+  [[ -d "$path" && -f "$path/SKILL.md" ]] && grep -Fq 'name: create-repomux-task' "$path/SKILL.md"
+}
+
+replace_managed_directory() {
+  local source_directory="$1"
+  local destination_directory="$2"
+  local validator="$3"
+  local make_scripts_executable="$4"
+  local parent_directory
+  local replacement_directory
+  local previous_directory=""
+
+  parent_directory="$(dirname -- "$destination_directory")"
+  replacement_directory="$(mktemp -d "$parent_directory/.repomux-replacement.XXXXXX")"
+
+  if ! cp -R "$source_directory/." "$replacement_directory/"; then
+    rm -rf -- "$replacement_directory"
+    return 1
+  fi
+
+  if [[ "$make_scripts_executable" == true ]] &&
+    ! chmod +x "$replacement_directory"/scripts/*.sh
+  then
+    rm -rf -- "$replacement_directory"
+    return 1
+  fi
+
+  if ! "$validator" "$replacement_directory" >/dev/null; then
+    rm -rf -- "$replacement_directory"
+    return 1
+  fi
+
+  if [[ -d "$destination_directory" ]]; then
+    previous_directory="$(mktemp -d "$parent_directory/.repomux-previous.XXXXXX")"
+    rmdir "$previous_directory"
+
+    if ! mv -- "$destination_directory" "$previous_directory"; then
+      rm -rf -- "$replacement_directory"
+      return 1
+    fi
+  fi
+
+  if ! mv -- "$replacement_directory" "$destination_directory"; then
+    if [[ -n "$previous_directory" ]]; then
+      if ! mv -- "$previous_directory" "$destination_directory"; then
+        echo "Could not restore the previous RepoMux directory. Recovery copy: $previous_directory" >&2
+      fi
+    fi
+    rm -rf -- "$replacement_directory"
+    return 1
+  fi
+
+  if ! "$validator" "$destination_directory" >/dev/null ||
+    ! diff -qr "$source_directory" "$destination_directory" >/dev/null
+  then
+    rm -rf -- "$destination_directory"
+    if [[ -n "$previous_directory" ]]; then
+      if ! mv -- "$previous_directory" "$destination_directory"; then
+        echo "Could not restore the previous RepoMux directory. Recovery copy: $previous_directory" >&2
+      fi
+    fi
+    return 1
+  fi
+
+  if [[ -n "$previous_directory" ]]; then
+    rm -rf -- "$previous_directory"
+  fi
 }
 
 validate_reasoning_effort() {
@@ -73,6 +159,7 @@ validate_projects_registry_file() {
 }
 
 bin_directory=""
+upgrade_install=false
 default_model="gpt-5.6-terra"
 default_model_explicit=false
 default_coordinator_reasoning_effort="medium"
@@ -84,6 +171,10 @@ default_max_parallel_explicit=false
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
+    --upgrade)
+      upgrade_install=true
+      shift
+      ;;
     --bin-dir)
       if [[ "$#" -lt 2 || -z "$2" ]]; then
         usage
@@ -208,7 +299,7 @@ if [[ "$config_directory" != /* ]]; then
   exit 2
 fi
 
-for required_command in cp diff jq mktemp mv; do
+for required_command in cp diff grep jq mktemp mv; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     echo "Required command is not installed: $required_command" >&2
     exit 2
@@ -311,36 +402,50 @@ if [[ -f "$projects_registry" ]] && ! validate_projects_registry_file "$projects
 fi
 
 if [[ -e "$command_path" ]] && ! diff -q "$source_command" "$command_path" >/dev/null; then
-  echo "Command path already contains a different file: $command_path" >&2
-  exit 1
+  if [[ "$upgrade_install" != true ]]; then
+    echo "Command path already contains a different file: $command_path" >&2
+    echo "Use --upgrade to replace an existing RepoMux installation." >&2
+    exit 1
+  fi
+
+  if ! is_repomux_command "$command_path"; then
+    echo "Refusing to replace a command that is not an identifiable RepoMux command: $command_path" >&2
+    exit 1
+  fi
 fi
 
 if [[ -e "$installed_skill" ]] && ! diff -qr "$source_skill" "$installed_skill" >/dev/null; then
-  echo "Installed RepoMux skill differs from this package: $installed_skill" >&2
-  exit 1
+  if [[ "$upgrade_install" != true ]]; then
+    echo "Installed RepoMux skill differs from this package: $installed_skill" >&2
+    echo "Use --upgrade to replace an existing RepoMux installation." >&2
+    exit 1
+  fi
+
+  if ! is_repomux_skill "$installed_skill"; then
+    echo "Refusing to replace a directory that is not an identifiable RepoMux skill: $installed_skill" >&2
+    exit 1
+  fi
 fi
 
 if [[ -e "$installed_task_skill" ]] && ! diff -qr "$source_task_skill" "$installed_task_skill" >/dev/null; then
-  echo "Installed RepoMux task-authoring skill differs from this package: $installed_task_skill" >&2
-  exit 1
+  if [[ "$upgrade_install" != true ]]; then
+    echo "Installed RepoMux task-authoring skill differs from this package: $installed_task_skill" >&2
+    echo "Use --upgrade to replace an existing RepoMux installation." >&2
+    exit 1
+  fi
+
+  if ! is_repomux_task_skill "$installed_task_skill"; then
+    echo "Refusing to replace a directory that is not an identifiable RepoMux task-authoring skill: $installed_task_skill" >&2
+    exit 1
+  fi
 fi
 
 command_stage=""
-skill_stage=""
-task_skill_stage=""
 projects_stage=""
 
 cleanup() {
   if [[ -n "$command_stage" ]]; then
     rm -f -- "$command_stage"
-  fi
-
-  if [[ -n "$skill_stage" ]]; then
-    rm -rf -- "$skill_stage"
-  fi
-
-  if [[ -n "$task_skill_stage" ]]; then
-    rm -rf -- "$task_skill_stage"
   fi
 
   if [[ -n "$projects_stage" ]]; then
@@ -423,26 +528,7 @@ if ! validate_projects_registry_file "$projects_stage"; then
   exit 1
 fi
 
-if [[ ! -e "$installed_skill" ]]; then
-  skill_stage="$(mktemp -d "$data_directory/.skill.XXXXXX")"
-  cp -R "$source_skill/." "$skill_stage/"
-  chmod +x "$skill_stage"/scripts/*.sh
-  "$skill_validator" "$skill_stage" >/dev/null
-  mv -- "$skill_stage" "$installed_skill"
-  skill_stage=""
-fi
-
-if [[ ! -e "$installed_task_skill" ]]; then
-  task_skill_stage="$(mktemp -d "$data_directory/.task-skill.XXXXXX")"
-  cp -R "$source_task_skill/." "$task_skill_stage/"
-  "$task_skill_validator" "$task_skill_stage" >/dev/null
-  mv -- "$task_skill_stage" "$installed_task_skill"
-  task_skill_stage=""
-fi
-
-chmod +x "$installed_skill"/scripts/*.sh
-
-if [[ ! -e "$command_path" ]]; then
+if [[ ! -e "$command_path" ]] || ! diff -q "$source_command" "$command_path" >/dev/null; then
   command_stage="$(mktemp "$bin_directory/.repomux.XXXXXX")"
   cp "$source_command" "$command_stage"
   chmod +x "$command_stage"
@@ -451,6 +537,34 @@ if [[ ! -e "$command_path" ]]; then
 fi
 
 chmod +x "$command_path"
+
+if [[ ! -e "$installed_task_skill" ]] ||
+  ! diff -qr "$source_task_skill" "$installed_task_skill" >/dev/null
+then
+  if ! replace_managed_directory \
+    "$source_task_skill" \
+    "$installed_task_skill" \
+    "$task_skill_validator" \
+    false
+  then
+    echo "Could not install the RepoMux task-authoring skill: $installed_task_skill" >&2
+    exit 1
+  fi
+fi
+
+if [[ ! -e "$installed_skill" ]] || ! diff -qr "$source_skill" "$installed_skill" >/dev/null; then
+  if ! replace_managed_directory \
+    "$source_skill" \
+    "$installed_skill" \
+    "$skill_validator" \
+    true
+  then
+    echo "Could not install the RepoMux skill: $installed_skill" >&2
+    exit 1
+  fi
+fi
+
+chmod +x "$installed_skill"/scripts/*.sh
 
 mv -- "$projects_stage" "$projects_registry"
 projects_stage=""

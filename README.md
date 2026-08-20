@@ -94,6 +94,14 @@ To enable it now, run `source ~/.bashrc` or `source ~/.zshrc`.
 
 ### Upgrade registered projects
 
+Update an installed RepoMux command and shared skills from the current clone:
+
+```bash
+./install.sh --upgrade
+```
+
+Then update the managed skills in every registered coordination repository:
+
 ```bash
 repomux upgrade
 ```
