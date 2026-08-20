@@ -141,8 +141,8 @@ repomux init \
   -c "$PWD" \
   --model gpt-5.6-luna \
   --max-parallel 4 \
-  -r "orders-api=$PWD/../acme-orders-api" \
-  -r "storefront=$PWD/../acme-storefront"
+  -r "api=$PWD/../acme-orders-api" \
+  -r "web=$PWD/../acme-storefront"
 ```
 
 The short options are:
@@ -158,8 +158,8 @@ repomux init \
   -p acme-commerce \
   -c /work/acme-commerce-coordinate \
   --create-coordinate \
-  -r orders-api=/work/acme-orders-api \
-  -r storefront=/work/acme-storefront
+  -r api=/work/acme-orders-api \
+  -r web=/work/acme-storefront
 ```
 
 `--create-coordinate` accepts an absent directory or an existing empty directory. Initializing a nonempty directory that is not already a Git repository will fail.
@@ -195,28 +195,90 @@ repomux --project acme-commerce
 Once the coordinator starts, describe the feature and name the repositories that need changes:
 
 ```text
-$repomux Add customer order cancellation to orders-api and storefront so customers can cancel an eligible order from the order-details page and see the updated status without reloading.
+$repomux Add editable delivery-notification preferences to orders. Customers can choose email or SMS, save a valid destination, and see the current preference on the order page. Preserve existing order, shipment, receipt, and cancellation behavior.
 ```
 
-Before it creates the feature files, the coordinator shows you the proposed requirements and waits for your approval.
+Codex prepares the feature files and shows you one proposal before RepoMux starts the repository agents.
+
+## See the complete workflow
+
+These captures follow a delivery-notification feature from the first request to local integration.
+
+### 1. Describe the outcome
+
+Tell Codex what the customer should be able to do.
+You do not need to plan the change for each repository yourself.
+
+![Ask RepoMux to add editable delivery-notification preferences](assets/workflow-screen-captures/start-feature-request.png)
+
+### 2. Let Codex prepare the work
+
+Codex finds the registered API and storefront repositories, checks the relevant code, and creates the feature files.
+
+![Codex inspects the registered repositories and creates the feature files](assets/workflow-screen-captures/inspect-registered-repositories.png)
+
+It then writes one focused assignment for each repository.
+Each assignment defines the expected result, shared API behavior, verification command, and local commit message.
+
+![Codex prepares the API and storefront assignments](assets/workflow-screen-captures/prepare-repository-assignments.png)
+
+### 3. Review and approve the proposal
+
+Nothing changes in the product repositories until you approve the proposal.
+The proposal puts the repository outcomes, shared behavior, verification commands, and commit messages in one place.
+
+![Review the complete coordination proposal](assets/workflow-screen-captures/review-coordination-proposal.png)
+
+After you approve it, RepoMux creates isolated worktrees and starts the repository agents.
+
+![Approve the proposal and start the repository agents](assets/workflow-screen-captures/approve-and-start-repository-agents.png)
+
+### 4. Read the complete run report
+
+When the work finishes, RepoMux creates one report for the complete run.
+The API result shows its commit, verification result, model, reasoning effort, token usage, and Git state.
+
+![Review the completed API result](assets/workflow-screen-captures/review-api-result.png)
+
+The report then shows the storefront result and the commands for the next step.
+See [Understand token usage](TOKEN-USAGE.md) to learn how RepoMux keeps repository-agent context separate and records token usage.
+
+![Review the storefront result and the next actions](assets/workflow-screen-captures/review-storefront-result-and-next-actions.png)
+
+### 5. Review the integration plan
+
+When you are ready, run the integration command from the report.
+
+![Start local integration for the completed run](assets/workflow-screen-captures/start-local-integration.png)
+
+RepoMux checks the feature documents and repository commits, then shows every planned local change.
+
+![Review the local integration plan before confirming it](assets/workflow-screen-captures/review-integration-plan.png)
+
+### 6. Complete local integration
+
+Confirm the plan to commit the feature documents and fast-forward both local product repository branches.
+RepoMux does not push the changes, and it keeps the feature worktrees available.
+
+![Complete local integration and keep the feature worktrees](assets/workflow-screen-captures/complete-local-integration.png)
 
 ## What RepoMux creates for a feature
 
-After you approve the proposal, RepoMux turns the request into a feature ID, such as `customer-order-cancellation-a31f7c`.
-The coordinator then writes one request file and one task for each repository:
+As Codex prepares the proposal, it gives the feature a stable ID, such as `editable-delivery-notification-preferences-lejayt`.
+It also writes one request file and one task for each repository:
 
 ```text
-requests/customer-order-cancellation-a31f7c.md
-tasks/customer-order-cancellation-a31f7c/orders-api.md
-tasks/customer-order-cancellation-a31f7c/storefront.md
-tasks/customer-order-cancellation-a31f7c/assignments.txt
+requests/editable-delivery-notification-preferences-lejayt.md
+tasks/editable-delivery-notification-preferences-lejayt/api.md
+tasks/editable-delivery-notification-preferences-lejayt/web.md
+tasks/editable-delivery-notification-preferences-lejayt/assignments.txt
 ```
 
 The request file describes the feature as a whole.
-Each repository task explains what that repository must change and how its agent must test the result.
+Each repository task explains what that repository must change and how its agent must verify the result.
 The assignments file connects those tasks to the registered repositories.
 
-When implementation starts, RepoMux creates a separate run ID, such as `customer-order-cancellation-a31f7c-run-k82mqp`.
+When implementation starts, RepoMux creates a separate run ID, such as `editable-delivery-notification-preferences-lejayt-run-cTq3cz`.
 It records the current state of each product repository and gives each repository agent its own branch and worktree:
 
 ```text
@@ -233,7 +295,7 @@ Run a dry run first to see what RepoMux will change:
 ```bash
 repomux integrate \
   --project acme-commerce \
-  --run customer-order-cancellation-a31f7c-run-k82mqp \
+  --run editable-delivery-notification-preferences-lejayt-run-cTq3cz \
   --dry-run
 ```
 
@@ -242,7 +304,7 @@ If the plan looks correct, run the integration command without `--dry-run`:
 ```bash
 repomux integrate \
   --project acme-commerce \
-  --run customer-order-cancellation-a31f7c-run-k82mqp
+  --run editable-delivery-notification-preferences-lejayt-run-cTq3cz
 ```
 
 RepoMux asks for confirmation, commits the workflow documents, and fast-forwards each product branch to its completed feature commit.
@@ -253,7 +315,7 @@ It keeps the feature branches and worktrees in place and never pushes changes.
 Start the coordinator, then name the existing feature ID and file in your prompt:
 
 ```text
-$repomux Implement COMMERCE-2197 in the orders-api and storefront repositories using the requirements in incoming/COMMERCE-2197.md.
+$repomux Implement COMMERCE-2197 in the api and web repositories using the requirements in incoming/COMMERCE-2197.md.
 ```
 
 RepoMux uses the feature ID `COMMERCE-2197` and creates the repository tasks from the existing requirements in `incoming/COMMERCE-2197.md`.
@@ -265,8 +327,8 @@ Select a project and the writable repositories. You can pass extra Codex options
 ```bash
 repomux \
   --project acme-commerce \
-  --repository orders-api \
-  --repository storefront \
+  --repository api \
+  --repository web \
   -- \
   --profile acme-team
 ```
@@ -296,8 +358,8 @@ repomux list --details
 
 ```text
 PROJECT         COORDINATE                       REPOSITORY   PATH
-acme-commerce   /work/acme-commerce-coordinate   orders-api  /work/acme-orders-api
-acme-commerce   /work/acme-commerce-coordinate   storefront  /work/acme-storefront
+acme-commerce   /work/acme-commerce-coordinate   api          /work/acme-orders-api
+acme-commerce   /work/acme-commerce-coordinate   web          /work/acme-storefront
 ```
 
 RepoMux reads the repository rows from the coordination repository's `.repomux/repositories.json` file.
@@ -322,8 +384,8 @@ repomux init \
     --coordinator-reasoning-effort high \
     --repository-agent-reasoning-effort medium \
     --max-parallel 4 \
-    --repository orders-api=/work/acme-orders-api \
-    --repository storefront=/work/acme-storefront
+    --repository api=/work/acme-orders-api \
+    --repository web=/work/acme-storefront
 ```
 
 If you run `repomux init` again, RepoMux keeps every saved setting that you do not specify.
@@ -370,8 +432,8 @@ If the run uses all available attempts, resume it with the same run ID:
 
 ```bash
 bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/run-repository-agents.sh \
-  --resume customer-order-cancellation-a31f7c-run-k82mqp \
-  /work/acme-commerce-coordinate/tasks/customer-order-cancellation-a31f7c/assignments.txt
+  --resume editable-delivery-notification-preferences-lejayt-run-cTq3cz \
+  /work/acme-commerce-coordinate/tasks/editable-delivery-notification-preferences-lejayt/assignments.txt
 ```
 
 RepoMux skips repositories that already finished.
@@ -380,9 +442,9 @@ Retry one blocked repository with:
 
 ```bash
 bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/run-repository-agents.sh \
-  --resume customer-order-cancellation-a31f7c-run-k82mqp \
-  --retry-blocked orders-api \
-  /work/acme-commerce-coordinate/tasks/customer-order-cancellation-a31f7c/assignments.txt
+  --resume editable-delivery-notification-preferences-lejayt-run-cTq3cz \
+  --retry-blocked api \
+  /work/acme-commerce-coordinate/tasks/editable-delivery-notification-preferences-lejayt/assignments.txt
 ```
 
 RepoMux preserves failed and blocked worktrees for review.
@@ -402,9 +464,9 @@ After review or integration, remove selected worktrees:
 ```bash
 repomux cleanup \
   --project acme-commerce \
-  --run customer-order-cancellation-a31f7c-run-k82mqp \
-  --repository orders-api \
-  --repository storefront
+  --run editable-delivery-notification-preferences-lejayt-run-cTq3cz \
+  --repository api \
+  --repository web
 ```
 
 Cleanup preserves the RepoMux branches and commits. It will refuse to remove a dirty worktree.
@@ -413,8 +475,8 @@ Use `--force` only when you have reviewed the uncommitted work and explicitly wa
 ```bash
 repomux cleanup \
   --project acme-commerce \
-  --run customer-order-cancellation-a31f7c-run-k82mqp \
-  --repository orders-api \
+  --run editable-delivery-notification-preferences-lejayt-run-cTq3cz \
+  --repository api \
   --force
 ```
 
@@ -426,9 +488,9 @@ Scaffold a new feature to create its requirements and related tasks:
 
 ```bash
 bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/scaffold-feature.sh \
-  --title "Customer order cancellation" \
-  orders-api \
-  storefront
+  --title "Editable delivery notification preferences" \
+  api \
+  web
 ```
 
 The script prints the request-file path followed by the assignments-file path.
@@ -439,71 +501,7 @@ Start repository agents and generate the run ID:
 ```bash
 bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/run-repository-agents.sh \
   --reasoning-effort medium \
-  /work/acme-commerce-coordinate/tasks/customer-order-cancellation-a31f7c/assignments.txt
+  /work/acme-commerce-coordinate/tasks/editable-delivery-notification-preferences-lejayt/assignments.txt
 ```
 
 Pass an explicit run ID before the assignments file only when another system requires that exact ID.
-
-## Workflow Screen Captures
-
-This example follows one feature from the first request to local integration.
-The feature lets customers choose email or SMS delivery notifications and see their current preference on the order page.
-
-### 1. Describe the outcome
-
-Start RepoMux from the coordination repository and tell Codex what the customer should be able to do.
-You do not need to explain how each repository should implement the feature.
-
-![Ask RepoMux to add editable delivery-notification preferences](assets/workflow-screen-captures/start-feature-request.png)
-
-### 2. Let Codex prepare the work
-
-Codex finds the registered API and storefront repositories, checks the relevant code, and creates the feature files.
-
-![Codex inspects the registered repositories and creates the feature files](assets/workflow-screen-captures/inspect-registered-repositories.png)
-
-Codex then prepares one focused assignment for each repository.
-The assignments define the shared API behavior, the expected result in each repository, the verification commands, and the local commit messages.
-
-![Codex prepares the API and storefront assignments](assets/workflow-screen-captures/prepare-repository-assignments.png)
-
-### 3. Review and approve the proposal
-
-Before any repository agent starts, Codex shows the complete proposal in one place.
-You can review the repositories, shared behavior, verification commands, and commit messages before you approve the work.
-
-![Review the complete coordination proposal](assets/workflow-screen-captures/review-coordination-proposal.png)
-
-After you approve the proposal, Codex starts RepoMux.
-RepoMux creates isolated worktrees, runs the repository agents, verifies their work, and creates local feature commits.
-
-![Approve the proposal and start the repository agents](assets/workflow-screen-captures/approve-and-start-repository-agents.png)
-
-### 4. Read the complete run report
-
-When both repository agents finish, RepoMux creates one report for the complete run.
-The first part shows the API result, including its commit, verification result, model, reasoning effort, token usage, and Git state.
-
-![Review the completed API result](assets/workflow-screen-captures/review-api-result.png)
-
-The report continues with the storefront result and the commands you can use when you are ready to integrate the work.
-See [Understand token usage](TOKEN-USAGE.md) to learn how RepoMux keeps repository-agent context separate and records token usage.
-
-![Review the storefront result and the next actions](assets/workflow-screen-captures/review-storefront-result-and-next-actions.png)
-
-### 5. Review the integration plan
-
-Run the integration command when you want to move the completed feature commits to the local product repository branches.
-
-![Start local integration for the completed run](assets/workflow-screen-captures/start-local-integration.png)
-
-RepoMux checks the feature documents and repository commits, then shows every planned local change before it asks for confirmation.
-
-![Review the local integration plan before confirming it](assets/workflow-screen-captures/review-integration-plan.png)
-
-### 6. Complete local integration
-
-After you confirm the plan, RepoMux commits the feature documents and fast-forwards both product repository branches.
-It does not push the changes, and it keeps the feature worktrees available.
-
-![Complete local integration and keep the feature worktrees](assets/workflow-screen-captures/complete-local-integration.png)
