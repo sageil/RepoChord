@@ -40,6 +40,12 @@ No other assistant-authored content is permitted in that response.
 5. Complete the request and one bounded task file for each affected repository.
 6. Define the repository outcomes, cross-repository contract, state transitions, invariants, authorization, failure and restart behavior, acceptance criteria, verification commands, and commit messages.
 
+Write every repository commit message as a Conventional Commit using `<type>: <description>` or `<type>(<scope>): <description>`.
+
+Use `feat` for new behavior, `fix` for corrections, and the most accurate conventional type for other work.
+
+Use a scope only when it adds useful context.
+
 Do not create a second feature ID for work that already has one.
 
 When no feature ID exists, create the files from a short title:
