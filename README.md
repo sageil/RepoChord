@@ -446,51 +446,64 @@ Pass an explicit run ID before the assignments file only when another system req
 
 ## Workflow Screen Captures
 
-These captures show one complete feature workflow in order.
+This example follows one feature from the first request to local integration.
+The feature lets customers choose email or SMS delivery notifications and see their current preference on the order page.
 
-### 1. Start the feature in Codex
+### 1. Describe the outcome
 
-Start RepoMux for the registered project, then ask Codex to implement the customer order cancellation feature.
+Start RepoMux from the coordination repository and tell Codex what the customer should be able to do.
+You do not need to explain how each repository should implement the feature.
 
-![Start the customer order cancellation feature with RepoMux in Codex](assets/workflow-screen-captures/workflow-2026-08-19-132546.png)
+![Ask RepoMux to add editable delivery-notification preferences](assets/workflow-screen-captures/start-feature-request.png)
 
-### 2. Review the implementation plan
+### 2. Let Codex prepare the work
 
-The coordinator inspects the API and web repositories, confirms the feature requirements, and asks for approval before it starts the repository agents.
+Codex finds the registered API and storefront repositories, checks the relevant code, and creates the feature files.
 
-![Review the customer order cancellation implementation plan](assets/workflow-screen-captures/workflow-2026-08-19-132621.png)
+![Codex inspects the registered repositories and creates the feature files](assets/workflow-screen-captures/inspect-registered-repositories.png)
 
-### 3. Approve the implementation
+Codex then prepares one focused assignment for each repository.
+The assignments define the shared API behavior, the expected result in each repository, the verification commands, and the local commit messages.
 
-After approval, the coordinator starts RepoMux.
-If an assignment file has the wrong format, RepoMux stops before it creates repository worktrees.
+![Codex prepares the API and storefront assignments](assets/workflow-screen-captures/prepare-repository-assignments.png)
 
-![Approve the implementation and see RepoMux reject an invalid assignment file](assets/workflow-screen-captures/workflow-2026-08-19-132757.png)
+### 3. Review and approve the proposal
 
-### 4. Run the repository agents
+Before any repository agent starts, Codex shows the complete proposal in one place.
+You can review the repositories, shared behavior, verification commands, and commit messages before you approve the work.
 
-The coordinator corrects the assignment file and starts the API and web repository agents in isolated worktrees.
-Both agents implement their tasks, run their tests, and create local commits.
+![Review the complete coordination proposal](assets/workflow-screen-captures/review-coordination-proposal.png)
 
-![Run the API and web repository agents in parallel](assets/workflow-screen-captures/workflow-2026-08-19-133144.png)
+After you approve the proposal, Codex starts RepoMux.
+RepoMux creates isolated worktrees, runs the repository agents, verifies their work, and creates local feature commits.
 
-### 5. Review the completed work
+![Approve the proposal and start the repository agents](assets/workflow-screen-captures/approve-and-start-repository-agents.png)
 
-The coordinator verifies both results and reports each repository commit, test result, worktree, branch, attempt count, model, and reasoning effort.
-It also provides the dry-run and integration commands.
-See [Understand token usage](TOKEN-USAGE.md) for details about token isolation and repository-agent usage data.
+### 4. Read the complete run report
 
-![Review the completed API and web repository work](assets/workflow-screen-captures/workflow-2026-08-19-133202.png)
+When both repository agents finish, RepoMux creates one report for the complete run.
+The first part shows the API result, including its commit, verification result, model, reasoning effort, token usage, and Git state.
 
-### 6. Review the integration preflight
+![Review the completed API result](assets/workflow-screen-captures/review-api-result.png)
 
-The integration command verifies the feature documents and repository commits, then shows the planned local fast-forwards before it asks for confirmation.
+The report continues with the storefront result and the commands you can use when you are ready to integrate the work.
+See [Understand token usage](TOKEN-USAGE.md) to learn how RepoMux keeps repository-agent context separate and records token usage.
 
-![Review the integration preflight before changing the product repositories](assets/workflow-screen-captures/workflow-2026-08-19-133228.png)
+![Review the storefront result and the next actions](assets/workflow-screen-captures/review-storefront-result-and-next-actions.png)
 
-### 7. Confirm local integration
+### 5. Review the integration plan
 
-After confirmation, RepoMux commits the feature documents and fast-forwards the product repository branches.
-It preserves the feature worktrees and does not push changes.
+Run the integration command when you want to move the completed feature commits to the local product repository branches.
 
-![Complete the local integration and preserve the RepoMux worktrees](assets/workflow-screen-captures/workflow-2026-08-19-133235.png)
+![Start local integration for the completed run](assets/workflow-screen-captures/start-local-integration.png)
+
+RepoMux checks the feature documents and repository commits, then shows every planned local change before it asks for confirmation.
+
+![Review the local integration plan before confirming it](assets/workflow-screen-captures/review-integration-plan.png)
+
+### 6. Complete local integration
+
+After you confirm the plan, RepoMux commits the feature documents and fast-forwards both product repository branches.
+It does not push the changes, and it keeps the feature worktrees available.
+
+![Complete local integration and keep the feature worktrees](assets/workflow-screen-captures/complete-local-integration.png)
