@@ -1,6 +1,6 @@
 ---
 name: repomux
-description: Coordinate one feature, fix, migration, or release across two or more separate Git repositories with isolated repository agents and one consolidated result. Use when the requested work affects at least two repositories registered with RepoMux. Do not use for work contained in one repository.
+description: Coordinate one feature, fix, migration, or release across two or more separate Git repositories with isolated repository agents and one consolidated result. Use when at least two repositories registered with RepoMux will participate in the requested work. Do not use for work contained in one repository.
 ---
 
 # Coordinate repositories with RepoMux
@@ -34,10 +34,10 @@ No other assistant-authored content is permitted in that response.
 ## Prepare the proposal
 
 1. Read the feature request and `.repomux/repositories.json`.
-2. Inspect enough of each affected repository to identify its execution path and focused verification command.
+2. Inspect enough of each participating repository to identify its execution path and focused verification command.
 3. Resolve the feature ID from an explicit ID, an unambiguous existing feature match, or a short stable title, in that order.
 4. If the feature files do not exist, create them with `scripts/scaffold-feature.sh`.
-5. Complete the request and one bounded task file for each affected repository.
+5. Complete the request and one bounded task file for each participating repository.
 6. Define the repository outcomes, cross-repository contract, state transitions, invariants, authorization, failure and restart behavior, acceptance criteria, verification commands, and commit messages.
 
 Write every repository commit message as a Conventional Commit using `<type>: <description>` or `<type>(<scope>): <description>`.
