@@ -3,7 +3,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: run-repository-agents.sh [--model <model>] [--reasoning-effort <effort>] [--profile <profile>] [--agent-output <progress|quiet>] [--max-parallel <count>] [--max-attempts <count>] [--allow-dirty-source] [--resume <run-id>] [--retry-blocked <repository-key>]... [<run-id>] <assignments-file>" >&2
+  echo "Usage: run-repository-agents.sh [--model <model>] [--reasoning-effort <effort>] [--profile <profile>] [--max-parallel <count>] [--max-attempts <count>] [--allow-dirty-source] [--resume <run-id>] [--retry-blocked <repository-key>]... [<run-id>] <assignments-file>" >&2
 }
 
 model=""
@@ -11,8 +11,6 @@ model_explicit=false
 reasoning_effort=""
 reasoning_effort_explicit=false
 profile=""
-agent_output=""
-agent_output_explicit=false
 max_parallel=""
 max_parallel_explicit=false
 max_attempts=""
@@ -51,16 +49,6 @@ while [[ "$#" -gt 0 ]]; do
       fi
 
       profile="$2"
-      shift 2
-      ;;
-    --agent-output)
-      if [[ "$#" -lt 2 || -z "$2" ]]; then
-        usage
-        exit 2
-      fi
-
-      agent_output="$2"
-      agent_output_explicit=true
       shift 2
       ;;
     --max-parallel)
@@ -250,34 +238,6 @@ if [[ -z "$model" || "$model" =~ [[:space:]] ]]; then
   echo "Model must be a nonempty value without whitespace: $model" >&2
   exit 2
 fi
-
-if [[ "$agent_output_explicit" != true ]]; then
-  if [[ -n "${REPOMUX_AGENT_OUTPUT:-}" ]]; then
-    agent_output="$REPOMUX_AGENT_OUTPUT"
-  else
-    agent_output="progress"
-
-    if [[ -n "$projects_registry" && -f "$projects_registry" ]]; then
-      agent_output="$(jq -er \
-        --arg coordinate "$coordinate_root" \
-        '
-          (.defaults.agentOutput // "progress") as $default |
-          [.projects[] | select(.coordinate == $coordinate)] |
-          if length == 1 then (.[0].agentOutput // $default) else $default end
-        ' \
-        "$projects_registry")"
-    fi
-  fi
-fi
-
-case "$agent_output" in
-  progress|quiet)
-    ;;
-  *)
-    echo "Repository-agent output must be progress or quiet: $agent_output" >&2
-    exit 2
-    ;;
-esac
 
 if [[ "$max_parallel_explicit" != true ]]; then
   if [[ -n "${REPOMUX_MAX_PARALLEL:-}" ]]; then
@@ -753,7 +713,6 @@ fi
 repository_agent_arguments=(
   --model "$model"
   --reasoning-effort "$reasoning_effort"
-  --agent-output "$agent_output"
   --max-attempts "$max_attempts"
 )
 
@@ -921,6 +880,7 @@ while [[ "$next_index" -lt "$launch_count" ]]; do
       "${repository_paths[$index]}" \
       "$run_id" \
       "${task_files[$index]}" \
+      > /dev/null \
       2> "$launcher_log" &
 
     pids+=("$!")

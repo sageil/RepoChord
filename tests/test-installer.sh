@@ -79,7 +79,6 @@ jq -e '
   .version == 1 and
   .defaults == {
     maxAttempts: 3,
-    agentOutput: "progress",
     model: "gpt-5.6-terra",
     coordinatorReasoningEffort: "medium",
     repositoryAgentReasoningEffort: "high",
@@ -107,7 +106,7 @@ fi
 jq '
   del(.defaults.coordinatorReasoningEffort) |
   del(.defaults.repositoryAgentReasoningEffort) |
-  del(.defaults.agentOutput)
+  .defaults.agentOutput = "progress"
 ' "$projects_registry" > "$projects_registry.legacy"
 mv "$projects_registry.legacy" "$projects_registry"
 
@@ -119,7 +118,7 @@ HOME="$test_home" \
 jq -e '
   .defaults.coordinatorReasoningEffort == "medium" and
   .defaults.repositoryAgentReasoningEffort == "high" and
-  .defaults.agentOutput == "progress"
+  (.defaults | has("agentOutput") | not)
 ' "$projects_registry" >/dev/null
 
 HOME="$test_home" \
@@ -135,7 +134,6 @@ jq -e '
   .defaults.model == "openrouter/example/model" and
   .defaults.coordinatorReasoningEffort == "low" and
   .defaults.repositoryAgentReasoningEffort == "xhigh" and
-  .defaults.agentOutput == "progress" and
   .defaults.maxParallel == 4 and
   .projects == []
 ' "$projects_registry" >/dev/null
@@ -150,16 +148,6 @@ then
   exit 1
 fi
 
-if HOME="$test_home" \
-  "$repository_directory/install.sh" \
-    --bin-dir "$command_bin" \
-    --default-agent-output quiet \
-    >/dev/null 2>&1
-then
-  echo "Installer unexpectedly accepted a repository-agent output option." >&2
-  exit 1
-fi
-
 test "$(jq -r '.defaults.repositoryAgentReasoningEffort' "$projects_registry")" = "xhigh"
 
 HOME="$test_home" \
@@ -171,7 +159,6 @@ jq -e '
   .defaults.model == "openrouter/example/model" and
   .defaults.coordinatorReasoningEffort == "low" and
   .defaults.repositoryAgentReasoningEffort == "xhigh" and
-  .defaults.agentOutput == "progress" and
   .defaults.maxParallel == 4
 ' "$projects_registry" >/dev/null
 
@@ -180,7 +167,6 @@ jq -n '{
   version: 1,
   defaults: {
     maxAttempts: 3,
-    agentOutput: "progress",
     model: "gpt-5.6-terra",
     coordinatorReasoningEffort: "medium",
     repositoryAgentReasoningEffort: "high",
@@ -201,24 +187,6 @@ fi
 
 test ! -e "$invalid_registry_bin/repomux"
 test "$(jq -r '.defaults.maxParallel' "$invalid_registry_home/.config/repomux/projects.json")" = "0"
-
-jq \
-  '.defaults.maxParallel = 2 | .defaults.agentOutput = "full"' \
-  "$invalid_registry_home/.config/repomux/projects.json" \
-  > "$invalid_registry_home/.config/repomux/projects.invalid-output.json"
-mv \
-  "$invalid_registry_home/.config/repomux/projects.invalid-output.json" \
-  "$invalid_registry_home/.config/repomux/projects.json"
-
-if HOME="$invalid_registry_home" \
-  XDG_CONFIG_HOME="$invalid_registry_home/.config" \
-  "$repository_directory/install.sh" \
-    --bin-dir "$invalid_registry_bin" \
-    >/dev/null 2>&1
-then
-  echo "Installer unexpectedly accepted an invalid default repository-agent output mode." >&2
-  exit 1
-fi
 
 printf 'preserve this command\n' > "$conflict_bin/repomux"
 
@@ -293,7 +261,6 @@ HOME="$test_home" "$repomux_command" init \
   --model project-model \
   --coordinator-reasoning-effort high \
   --repository-agent-reasoning-effort medium \
-  --agent-output quiet \
   --max-parallel 3 \
   -r "api=$api_repository" \
   -r "web=$web_repository"
@@ -319,7 +286,6 @@ jq -e \
   '.version == 1 and
    .defaults == {
      maxAttempts: 3,
-     agentOutput: "progress",
      model: "openrouter/example/model",
      coordinatorReasoningEffort: "low",
      repositoryAgentReasoningEffort: "xhigh",
@@ -331,7 +297,6 @@ jq -e \
      model: "project-model",
      coordinatorReasoningEffort: "high",
      repositoryAgentReasoningEffort: "medium",
-     agentOutput: "quiet",
      maxParallel: 3
    }]' \
   "$projects_registry" \
@@ -374,13 +339,6 @@ test "$(
     repository-agent-reasoning-effort
 )" = "medium"
 
-test "$(
-  HOME="$test_home" \
-  "$repomux_command" config get \
-    --project acme-commerce \
-    agent-output
-)" = "quiet"
-
 HOME="$test_home" \
 "$repomux_command" config set \
   --project acme-commerce \
@@ -397,12 +355,6 @@ HOME="$test_home" \
 "$repomux_command" config set \
   --project acme-commerce \
   repository-agent-reasoning-effort low \
-  >/dev/null
-
-HOME="$test_home" \
-"$repomux_command" config set \
-  --project acme-commerce \
-  agent-output progress \
   >/dev/null
 
 HOME="$test_home" \
@@ -456,7 +408,6 @@ jq -e \
    .model == "project-model-2" and
    .coordinatorReasoningEffort == "xhigh" and
    .repositoryAgentReasoningEffort == "low" and
-   .agentOutput == "progress" and
    .maxParallel == 5' \
   "$projects_registry" \
   >/dev/null
@@ -494,15 +445,6 @@ if HOME="$test_home" "$repomux_command" config set \
   >/dev/null 2>&1
 then
   echo "RepoMux unexpectedly accepted an invalid coordinator reasoning effort." >&2
-  exit 1
-fi
-
-if HOME="$test_home" "$repomux_command" config set \
-  --project acme-commerce \
-  agent-output impossible \
-  >/dev/null 2>&1
-then
-  echo "RepoMux unexpectedly accepted an invalid repository-agent output mode." >&2
   exit 1
 fi
 
@@ -550,7 +492,6 @@ diff -u \
 grep -Fqx "5" "$attempts_capture"
 grep -Fqx "model=project-model-2" "$settings_capture"
 grep -Fqx "repository_agent_reasoning_effort=low" "$settings_capture"
-grep -Fqx "agent_output=progress" "$settings_capture"
 grep -Fqx "max_parallel=5" "$settings_capture"
 grep -Fqx "allow_dirty_source=false" "$settings_capture"
 
@@ -564,7 +505,6 @@ FAKE_REPOMUX_SETTINGS_CAPTURE="$settings_capture" \
   --model session-model \
   --coordinator-reasoning-effort medium \
   --repository-agent-reasoning-effort xhigh \
-  --agent-output quiet \
   --max-parallel 7 \
   --max-attempts 7 \
   --allow-dirty-source
@@ -572,7 +512,6 @@ FAKE_REPOMUX_SETTINGS_CAPTURE="$settings_capture" \
 grep -Fqx "7" "$attempts_capture"
 grep -Fqx "model=session-model" "$settings_capture"
 grep -Fqx "repository_agent_reasoning_effort=xhigh" "$settings_capture"
-grep -Fqx "agent_output=quiet" "$settings_capture"
 grep -Fqx "max_parallel=7" "$settings_capture"
 grep -Fqx "allow_dirty_source=true" "$settings_capture"
 grep -Fqx 'model_reasoning_effort="medium"' "$launcher_capture"

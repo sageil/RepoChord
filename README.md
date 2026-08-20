@@ -41,7 +41,6 @@ Unless you change them, RepoMux installs with these settings:
 | AI model | `gpt-5.6-terra` |
 | Coordinator reasoning effort | `medium` |
 | Repository-agent reasoning effort | `high` |
-| Repository-agent output | `progress` |
 | Parallel repository agents | `2` |
 | Maximum attempts | `3` |
 | Executable script | `~/.local/bin/repomux` |
@@ -322,7 +321,6 @@ repomux init \
     --model openrouter/anthropic/claude-sonnet-4.5 \
     --coordinator-reasoning-effort high \
     --repository-agent-reasoning-effort medium \
-    --agent-output quiet \
     --max-parallel 4 \
     --repository orders-api=/work/acme-orders-api \
     --repository storefront=/work/acme-storefront
@@ -336,7 +334,6 @@ Change project values later:
 repomux config set --project acme-commerce model gpt-5.6-terra
 repomux config set --project acme-commerce coordinator-reasoning-effort high
 repomux config set --project acme-commerce repository-agent-reasoning-effort medium
-repomux config set --project acme-commerce agent-output quiet
 repomux config set --project acme-commerce max-parallel 4
 repomux config set --project acme-commerce max-attempts 5
 ```
@@ -347,7 +344,6 @@ Read the effective project values:
 repomux config get --project acme-commerce model
 repomux config get --project acme-commerce coordinator-reasoning-effort
 repomux config get --project acme-commerce repository-agent-reasoning-effort
-repomux config get --project acme-commerce agent-output
 repomux config get --project acme-commerce max-parallel
 repomux config get --project acme-commerce max-attempts
 ```
@@ -360,14 +356,12 @@ repomux \
     --model gpt-5.6-terra \
     --coordinator-reasoning-effort high \
     --repository-agent-reasoning-effort medium \
-    --agent-output quiet \
     --max-parallel 2 \
     --max-attempts 5
 ```
 
 Settings passed at startup apply only to that session and override the saved project settings.
 If the project does not have a saved value, RepoMux uses the installation default.
-Use `progress` to show compact live repository-agent activity or `quiet` to suppress it.
 
 ## Resume an incomplete run
 
