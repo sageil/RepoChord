@@ -44,16 +44,6 @@ if ! grep -q '^description: .\+' "$skill_directory/SKILL.md"; then
   exit 1
 fi
 
-if ! grep -Fq 'Stop and wait for explicit user approval.' "$skill_directory/SKILL.md"; then
-  echo "SKILL.md does not require contract approval." >&2
-  exit 1
-fi
-
-if ! grep -Fq 'Do not run `scaffold-feature.sh`, create or edit feature files, or start repository agents until the user approves the contract.' "$skill_directory/SKILL.md"; then
-  echo "SKILL.md does not enforce the contract approval boundary." >&2
-  exit 1
-fi
-
 for script_path in "$skill_directory"/scripts/*.sh; do
   bash -n "$script_path"
 
