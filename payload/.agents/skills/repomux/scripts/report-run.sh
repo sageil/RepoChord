@@ -18,6 +18,17 @@ single_line() {
   jq -r "$filter | gsub(\"[\\u0000-\\u001F\\u007F]\"; \" \")" "$result_path"
 }
 
+markdown_code() {
+  local value="$1"
+  local delimiter='`'
+
+  while [[ "$value" == *"$delimiter"* ]]; do
+    delimiter="${delimiter}"'`'
+  done
+
+  printf '%s%s%s' "$delimiter" "$value" "$delimiter"
+}
+
 display_string_list() {
   local result_path="$1"
   local filter="$2"
@@ -447,8 +458,8 @@ fi
 write_complete_report() {
   echo "RepoMux run report"
   echo "Feature: $feature_id"
-  echo "Run: $run_id"
-  echo "Overall status: $overall_status"
+  echo "Run: $(markdown_code "$run_id")"
+  echo "Overall status: $(markdown_code "$overall_status")"
   echo "Pushed by RepoMux: no"
   echo "Incomplete repositories: $incomplete_list"
 
@@ -467,7 +478,7 @@ write_complete_report() {
     fi
 
     echo "  Summary: $(single_line "$result_path" '.summary')"
-    echo "  Commit: $(jq -r '.commit // "unavailable"' "$result_path")"
+    echo "  Commit: $(markdown_code "$(jq -r '.commit // "unavailable"' "$result_path")")"
     echo "  Tests:"
 
     if [[ "$(jq '.tests | length' "$result_path")" -eq 0 ]]; then
@@ -490,38 +501,38 @@ write_complete_report() {
     display_string_list "$result_path" '.risks' "none"
     echo "  Blockers:"
     display_string_list "$result_path" '.blockers' "none"
-    echo "  Model: $(single_line "$result_path" '.execution.model')"
-    echo "  Reasoning effort: $(jq -r '.execution.reasoning_effort // "unavailable"' "$result_path")"
-    echo "  Attempt: $(jq -r '.execution.attempt_count' "$result_path") of $(jq -r '.execution.max_attempts' "$result_path")"
+    echo "  Model: $(markdown_code "$(single_line "$result_path" '.execution.model')")"
+    echo "  Reasoning effort: $(markdown_code "$(jq -r '.execution.reasoning_effort // "unavailable"' "$result_path")")"
+    echo "  Attempt: $(markdown_code "$(jq -r '.execution.attempt_count' "$result_path")") of $(markdown_code "$(jq -r '.execution.max_attempts' "$result_path")")"
 
     if jq -e '.execution.usage == null' "$result_path" >/dev/null; then
       echo "  Token usage: unavailable"
     else
       echo "  Token usage:"
-      echo "    Input: $(jq -r '.execution.usage.input_tokens' "$result_path")"
-      echo "    Cached input: $(jq -r '.execution.usage.cached_input_tokens' "$result_path")"
-      echo "    Output: $(jq -r '.execution.usage.output_tokens' "$result_path")"
-      echo "    Reasoning output: $(jq -r '.execution.usage.reasoning_output_tokens' "$result_path")"
+      echo "    Input: $(markdown_code "$(jq -r '.execution.usage.input_tokens' "$result_path")")"
+      echo "    Cached input: $(markdown_code "$(jq -r '.execution.usage.cached_input_tokens' "$result_path")")"
+      echo "    Output: $(markdown_code "$(jq -r '.execution.usage.output_tokens' "$result_path")")"
+      echo "    Reasoning output: $(markdown_code "$(jq -r '.execution.usage.reasoning_output_tokens' "$result_path")")"
     fi
 
     echo "  Retry safe: $(jq -r 'if .execution.retry_safe then "yes" else "no" end' "$result_path")"
     echo "  Source repository: $(single_line "$result_path" '.execution.source_repository_path // "unavailable"')"
     echo "  Base branch: $(single_line "$result_path" '.execution.base_branch // "unavailable"')"
-    echo "  Base commit: $(single_line "$result_path" '.execution.base_commit // "unavailable"')"
-    echo "  Final commit: $(single_line "$result_path" '.commit // "unavailable"')"
-    echo "  Worktree: $(single_line "$result_path" '.execution.worktree_path // "unavailable"')"
-    echo "  Worktree branch: $(single_line "$result_path" '.execution.worktree_branch // "unavailable"')"
+    echo "  Base commit: $(markdown_code "$(single_line "$result_path" '.execution.base_commit // "unavailable"')")"
+    echo "  Final commit: $(markdown_code "$(single_line "$result_path" '.commit // "unavailable"')")"
+    echo "  Worktree: $(markdown_code "$(single_line "$result_path" '.execution.worktree_path // "unavailable"')")"
+    echo "  Worktree branch: $(markdown_code "$(single_line "$result_path" '.execution.worktree_branch // "unavailable"')")"
 
     if [[ "$repository_status" == "completed" ]]; then
-      echo "  Worktree present: ${worktree_presence[$index]}"
+      echo "  Worktree present: $(markdown_code "${worktree_presence[$index]}")"
     fi
   done
 
   if [[ "$overall_status" == "completed" ]]; then
     echo
     echo "Next actions:"
-    echo "  repomux integrate --run $run_id --dry-run"
-    echo "  repomux integrate --run $run_id"
+    echo "  $(markdown_code "repomux integrate --run $run_id --dry-run")"
+    echo "  $(markdown_code "repomux integrate --run $run_id")"
   fi
 }
 
