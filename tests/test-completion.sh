@@ -109,6 +109,17 @@ HOME="$test_home" \
 PATH="$command_bin:$PATH" \
 /bin/bash -c '
   source "$1"
+  COMP_WORDS=(repomux integrate --show)
+  COMP_CWORD=2
+  _repomux
+  printf "%s\n" "${COMPREPLY[@]}"
+' completion-test "$bash_completion" \
+  | grep -Fqx -- --show-diffs
+
+HOME="$test_home" \
+PATH="$command_bin:$PATH" \
+/bin/bash -c '
+  source "$1"
   COMP_WORDS=(repomux report --project acme-commerce --run ORDER)
   COMP_CWORD=5
   _repomux
@@ -206,6 +217,21 @@ zsh -fc '
   _repomux
 ' completion-test "$zsh_completion" "$temporary_root/zcompdump-run" \
   | grep -Fqx ORDER-123-run-a1b2c3
+
+HOME="$test_home" \
+PATH="$command_bin:$PATH" \
+zsh -fc '
+  autoload -Uz compinit
+  compinit -d "$2"
+  source "$1"
+  compadd() {
+    print -l -- "$@"
+  }
+  words=(repomux integrate --show)
+  CURRENT=3
+  _repomux
+' completion-test "$zsh_completion" "$temporary_root/zcompdump-show-diffs" \
+  | grep -Fqx -- --show-diffs
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \

@@ -13,7 +13,7 @@ Usage:
   repomux upgrade
   repomux validate [-p <name> | -c <path>]
   repomux report [-p <name>] --run <run-id>
-  repomux integrate [-p <name>] --run <run-id> [--dry-run]
+  repomux integrate [-p <name>] --run <run-id> [--dry-run] [--show-diffs]
   repomux cleanup [-p <name>] --run <run-id> [-r <key>]... [--force]
   repomux completion <bash|zsh>
 EOF
@@ -992,7 +992,7 @@ _repomux() {
       candidates="-p --project --run -h --help"
       ;;
     integrate)
-      candidates="-p --project --run --dry-run -h --help"
+      candidates="-p --project --run --dry-run --show-diffs -h --help"
       ;;
     cleanup)
       candidates="-p --project --run -r --repository --force -h --help"
@@ -1182,7 +1182,7 @@ _repomux() {
       candidates=(-p --project --run -h --help)
       ;;
     integrate)
-      candidates=(-p --project --run --dry-run -h --help)
+      candidates=(-p --project --run --dry-run --show-diffs -h --help)
       ;;
     cleanup)
       candidates=(-p --project --run -r --repository --force -h --help)
@@ -2098,6 +2098,7 @@ run_integrate() {
   local requested_project=""
   local run_id=""
   local dry_run=false
+  local show_diffs=false
   local integration_script
   local integration_arguments=()
 
@@ -2125,6 +2126,10 @@ run_integrate() {
         dry_run=true
         shift
         ;;
+      --show-diffs)
+        show_diffs=true
+        shift
+        ;;
       -h|--help)
         usage
         exit 0
@@ -2150,6 +2155,10 @@ run_integrate() {
 
   if [[ "$dry_run" == true ]]; then
     integration_arguments+=(--dry-run)
+  fi
+
+  if [[ "$show_diffs" == true ]]; then
+    integration_arguments+=(--show-diffs)
   fi
 
   integration_arguments+=("$run_id")

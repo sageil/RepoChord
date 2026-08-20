@@ -165,6 +165,38 @@ then
   exit 1
 fi
 
+if [[ "$dry_run_output" == *"  Diff:"* ]]; then
+  echo "Integration displayed full diffs without --show-diffs." >&2
+  exit 1
+fi
+
+show_diffs_output="$(
+  HOME="$test_home" \
+  "$command_bin/repomux" integrate \
+    --project integration-test \
+    --run "$run_id" \
+    --dry-run \
+    --show-diffs
+)"
+
+if [[ "$show_diffs_output" != *"Dry run complete. No changes were made."* || \
+  "$show_diffs_output" != *"  Diff:"* || \
+  "$show_diffs_output" != *"+fake repository-agent change"* ]]
+then
+  echo "Integration did not display the requested repository diffs." >&2
+  exit 1
+fi
+
+show_diff_file_count="$(
+  printf '%s\n' "$show_diffs_output" | \
+    grep -Fc "diff --git a/fake-$run_id.txt b/fake-$run_id.txt"
+)"
+
+if [[ "$show_diff_file_count" -ne 2 ]]; then
+  echo "Integration did not display one diff for each pending repository." >&2
+  exit 1
+fi
+
 test "$(git -C "$coordinate_repository" rev-parse HEAD)" = "$coordinate_base_commit"
 test "$(git -C "$api_repository" rev-parse main)" = "$api_base_commit"
 test "$(git -C "$web_repository" rev-parse master)" = "$web_base_commit"
@@ -271,10 +303,14 @@ integrated_dry_run_output="$(
   "$command_bin/repomux" integrate \
     --project integration-test \
     --run "$run_id" \
-    --dry-run
+    --dry-run \
+    --show-diffs
 )"
 
-if [[ "$integrated_dry_run_output" != *"Integration: integrated"* ]]; then
+if [[ "$integrated_dry_run_output" != *"Integration: integrated"* || \
+  "$integrated_dry_run_output" != *"  Diff: none - already integrated"* || \
+  "$integrated_dry_run_output" == *"diff --git"* ]]
+then
   echo "Dry run did not report the already integrated repositories." >&2
   exit 1
 fi

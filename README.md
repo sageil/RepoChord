@@ -299,6 +299,18 @@ repomux integrate \
   --dry-run
 ```
 
+Add `--show-diffs` when you want to review the complete pending Git diff for each repository:
+
+```bash
+repomux integrate \
+  --project acme-commerce \
+  --run editable-delivery-notification-preferences-lejayt-run-cTq3cz \
+  --dry-run \
+  --show-diffs
+```
+
+RepoMux uses the native `git diff` command, so Git keeps your configured pager, colors, and terminal behavior.
+
 If the plan looks correct, run the integration command without `--dry-run`:
 
 ```bash

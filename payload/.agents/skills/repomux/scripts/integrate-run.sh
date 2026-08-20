@@ -3,7 +3,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: integrate-run.sh [--dry-run] <run-id>" >&2
+  echo "Usage: integrate-run.sh [--dry-run] [--show-diffs] <run-id>" >&2
 }
 
 fail() {
@@ -81,12 +81,17 @@ validate_checkout_collisions() {
 }
 
 dry_run=false
+show_diffs=false
 run_id=""
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --dry-run)
       dry_run=true
+      shift
+      ;;
+    --show-diffs)
+      show_diffs=true
       shift
       ;;
     -h|--help)
@@ -622,6 +627,7 @@ preflight_integration() {
 
 display_plan() {
   local index
+  local pending_base_commit
   local result_summary
 
   echo "Integration preflight passed."
@@ -649,8 +655,25 @@ display_plan() {
     result_summary="$(jq -c '{summary, tests, risks}' "${result_paths[$index]}")"
     echo "  Result: $result_summary"
     echo "  Change summary:"
+    pending_base_commit="${base_commits[$index]}"
+
+    if [[ "${integration_states[$index]}" == "pending" ]]; then
+      pending_base_commit="${base_current_commits[$index]}"
+    fi
+
     git -C "${repository_paths[$index]}" diff --no-ext-diff --no-textconv --stat \
-      "${base_commits[$index]}..${final_commits[$index]}"
+      "$pending_base_commit..${final_commits[$index]}"
+
+    if [[ "$show_diffs" == true ]]; then
+      if [[ "${integration_states[$index]}" == "pending" ]]; then
+        echo
+        echo "  Diff:"
+        git -C "${repository_paths[$index]}" diff \
+          "${base_current_commits[$index]}..${final_commits[$index]}"
+      else
+        echo "  Diff: none - already integrated"
+      fi
+    fi
   done
 }
 
