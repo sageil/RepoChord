@@ -200,67 +200,68 @@ $repomux Add editable delivery-notification preferences to orders. Customers can
 
 Codex prepares the feature files and shows you one proposal before RepoMux starts the repository agents.
 
-## See the complete workflow
+## Follow a feature from request to integration
 
-These captures follow a delivery-notification feature from the first request to local integration.
+These captures show a real delivery-instructions feature as it moves through RepoMux.
+The workflow begins with one short request and ends with the finished changes on the local API and storefront branches.
 
-### 1. Describe the outcome
+### 1. Ask for the desired outcome
 
-Tell Codex what the customer should be able to do.
-You do not need to plan the change for each repository yourself.
+Start RepoMux from the coordination repository, then tell Codex what the customer should be able to do by startig with `$repomux` followed by the prompt
+Codex finds the participating repositories and reads the relevant code before it prepares the work.
 
-![Ask RepoMux to add editable delivery-notification preferences](assets/workflow-screen-captures/start-feature-request.png)
+![Request editable delivery instructions and inspect the participating repositories](assets/workflow-screen-captures/request-delivery-instructions.png)
 
-### 2. Let Codex prepare the work
+### 2. See how the work will be divided
 
-Codex finds the registered API and storefront repositories, checks the relevant code, and creates the feature files.
+Codex creates one feature request and one focused assignment for each participating repository.
+The assignments describe the API behavior, storefront behavior, checks, and local commit messages before any product code changes.
 
-![Codex inspects the registered repositories and creates the feature files](assets/workflow-screen-captures/inspect-registered-repositories.png)
+![Prepare the API and storefront delivery-instructions assignments](assets/workflow-screen-captures/prepare-delivery-instructions-assignments.png)
 
-It then writes one focused assignment for each repository.
-Each assignment defines the expected result, shared API behavior, verification command, and local commit message.
+Codex then brings both assignments together in one proposal.
+Read it to confirm that the repositories agree on the request shape, saved state, and failure behavior.
 
-![Codex prepares the API and storefront assignments](assets/workflow-screen-captures/prepare-repository-assignments.png)
+![Review and approve the delivery-instructions proposal](assets/workflow-screen-captures/review-and-approve-proposal.png)
 
-### 3. Review and approve the proposal
+### 3. Let RepoMux run the repository agents
 
-Nothing changes in the product repositories until you approve the proposal.
-The proposal puts the repository outcomes, shared behavior, verification commands, and commit messages in one place.
+After approval, RepoMux creates an isolated worktree for each repository and starts both agents.
+The agents can work at the same time, while the normal API and storefront checkouts stay unchanged.
 
-![Review the complete coordination proposal](assets/workflow-screen-captures/review-coordination-proposal.png)
+![Run the API and storefront repository agents in isolated worktrees](assets/workflow-screen-captures/run-repository-agents.png)
 
-After you approve it, RepoMux creates isolated worktrees and starts the repository agents.
+### 4. Read the result before you integrate
 
-![Approve the proposal and start the repository agents](assets/workflow-screen-captures/approve-and-start-repository-agents.png)
+When both agents finish, RepoMux returns one report for the run.
+The first part shows the API result, including its commit, checks, model, reasoning effort, token usage, and worktree state.
 
-### 4. Read the complete run report
+![Review the API result in the RepoMux run report](assets/workflow-screen-captures/review-api-run-result.png)
 
-When the work finishes, RepoMux creates one report for the complete run.
-The API result shows its commit, verification result, model, reasoning effort, token usage, and Git state.
+The rest of the report shows the storefront result and the exact commands you can run next.
+See [Understand token usage](TOKEN-USAGE.md) for more detail about the recorded token counts.
 
-![Review the completed API result](assets/workflow-screen-captures/review-api-result.png)
+![Review the storefront result and integration commands](assets/workflow-screen-captures/review-storefront-result-and-next-actions.png)
 
-The report then shows the storefront result and the commands for the next step.
-See [Understand token usage](TOKEN-USAGE.md) to learn how RepoMux keeps repository-agent context separate and records token usage.
+### 5. Review the code in your Git diff viewer
 
-![Review the storefront result and the next actions](assets/workflow-screen-captures/review-storefront-result-and-next-actions.png)
+Leave Codex open and run the integration command in your terminal.
+Add `--show-diffs` to inspect the repository changes before RepoMux asks for confirmation.
 
-### 5. Review the integration plan
+![Start local integration and request the repository diffs](assets/workflow-screen-captures/start-integration-with-diffs.png)
 
-When you are ready, run the integration command from the report.
+RepoMux uses native `git diff`, so the review opens with your Git pager, colors, and display settings.
+This example uses a side-by-side diff to review the storefront changes.
 
-![Start local integration for the completed run](assets/workflow-screen-captures/start-local-integration.png)
+![Review the delivery-instructions changes in the configured Git diff viewer](assets/workflow-screen-captures/review-integration-diff.png)
 
-RepoMux checks the feature documents and repository commits, then shows every planned local change.
+### 6. Confirm local integration
 
-![Review the local integration plan before confirming it](assets/workflow-screen-captures/review-integration-plan.png)
-
-### 6. Complete local integration
-
-Confirm the plan to commit the feature documents and fast-forward both local product repository branches.
+After the diff closes, RepoMux asks whether to continue.
+Confirm to commit the feature documents and fast-forward the local product branches to their completed feature commits.
 RepoMux does not push the changes, and it keeps the feature worktrees available.
 
-![Complete local integration and keep the feature worktrees](assets/workflow-screen-captures/complete-local-integration.png)
+![Confirm integration and update the local API and storefront branches](assets/workflow-screen-captures/confirm-local-integration.png)
 
 ## What RepoMux creates for a feature
 
