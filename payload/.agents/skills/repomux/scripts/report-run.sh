@@ -39,12 +39,12 @@ display_string_list() {
   item_count="$(jq "$filter | length" "$result_path")"
 
   if [[ "$item_count" -eq 0 ]]; then
-    printf '  %s\n' "$empty_text"
+    printf '    %s\n' "$(markdown_code "$empty_text")"
     return
   fi
 
   while IFS= read -r item; do
-    printf '  - %s\n' "$item"
+    printf '    - %s\n' "$(markdown_code "$item")"
   done < <(jq -r "${filter}[] | gsub(\"[\\u0000-\\u001F\\u007F]\"; \" \")" "$result_path")
 }
 

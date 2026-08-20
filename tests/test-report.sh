@@ -132,6 +132,8 @@ grep -Fqx "Repository: web" "$complete_report"
 grep -Eq '^  Commit: `[0-9a-f]+`$' "$complete_report"
 grep -Fqx "  Summary: The fake repository agent completed the task." "$complete_report"
 grep -Fqx "    - fake test: passed - Passed." "$complete_report"
+grep -A1 -F '  Risks:' "$complete_report" | grep -Fqx '    `none`'
+grep -A1 -F '  Blockers:' "$complete_report" | grep -Fqx '    `none`'
 grep -Fqx '  Model: `gpt-5.6-terra`' "$complete_report"
 grep -Fqx '  Reasoning effort: `high`' "$complete_report"
 grep -Fqx '  Attempt: `1` of `3`' "$complete_report"
@@ -196,7 +198,7 @@ jq '
 run_report_expect_status 1 "$report_output"
 grep -Fqx "api: blocked | commit unavailable | blockers Approval is required." "$report_output"
 grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx "  Status: blocked"
-grep -Fqx "  - Approval is required." "$complete_report"
+grep -Fqx '    - `Approval is required.`' "$complete_report"
 
 mv "$api_result" "$temporary_root/missing-api-result.json"
 run_report_expect_status 1 "$report_output"
