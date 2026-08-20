@@ -88,7 +88,8 @@ For Zsh, add this to `~/.zshrc`:
 source <(repomux completion zsh)
 ```
 
-Open a new shell after saving the file or from the same shell run `source ~/.zshrc` for zsh or `source ~/.bashrc` for bash to activate autocomplete.
+Open a new shell to load the completion script.
+To enable it now, run `source ~/.bashrc` or `source ~/.zshrc`.
 
 ### Upgrade registered projects
 
@@ -109,7 +110,7 @@ Run the uninstall script from the cloned RepoMux repository:
 This removes the `repomux` command and shared skill but keeps your project registry.
 It also keeps all coordination repositories, product repositories, worktrees, branches, commits, and results.
 
-If you installed the repomux in a custom directory, pass the same directory during uninstall:
+If you installed the `repomux` command in a custom directory, pass the same directory when you uninstall it:
 
 ```bash
 ./uninstall.sh --bin-dir /absolute/command/directory
@@ -190,16 +191,6 @@ repomux
 repomux --project acme-commerce
 ```
 
-### 3. Request a new feature
-
-Once the coordinator starts, describe the feature and name the repositories that need changes:
-
-```text
-$repomux Add editable delivery-notification preferences to orders. Customers can choose email or SMS, save a valid destination, and see the current preference on the order page. Preserve existing order, shipment, receipt, and cancellation behavior.
-```
-
-Codex prepares the feature files and shows you one proposal before RepoMux starts the repository agents.
-
 ## Follow a feature from request to integration
 
 These captures show a real delivery-instructions feature as it moves through RepoMux.
@@ -207,7 +198,12 @@ The workflow begins with one short request and ends with the finished changes on
 
 ### 1. Ask for the desired outcome
 
-Start RepoMux from the coordination repository, then tell Codex what the customer should be able to do by startig with `$repomux` followed by the prompt
+Begin your prompt with `$repomux`, then describe what the customer should be able to do:
+
+```text
+$repomux Add editable delivery instructions to orders. Customers can save, replace, or clear a delivery note of up to 200 characters from the order page. If saving fails, keep the last saved note and allow another attempt. Preserve all existing order features.
+```
+
 Codex finds the participating repositories and reads the relevant code before it prepares the work.
 
 ![Request editable delivery instructions and inspect the participating repositories](assets/workflow-screen-captures/request-delivery-instructions.png)
@@ -265,21 +261,21 @@ RepoMux does not push the changes, and it keeps the feature worktrees available.
 
 ## What RepoMux creates for a feature
 
-As Codex prepares the proposal, it gives the feature a stable ID, such as `editable-delivery-notification-preferences-lejayt`.
+As Codex prepares the proposal, it gives the feature a stable ID, such as `editable-delivery-instructions-on-orders-grfhdd`.
 It also writes one request file and one task for each repository:
 
 ```text
-requests/editable-delivery-notification-preferences-lejayt.md
-tasks/editable-delivery-notification-preferences-lejayt/api.md
-tasks/editable-delivery-notification-preferences-lejayt/web.md
-tasks/editable-delivery-notification-preferences-lejayt/assignments.txt
+requests/editable-delivery-instructions-on-orders-grfhdd.md
+tasks/editable-delivery-instructions-on-orders-grfhdd/api.md
+tasks/editable-delivery-instructions-on-orders-grfhdd/web.md
+tasks/editable-delivery-instructions-on-orders-grfhdd/assignments.txt
 ```
 
 The request file describes the feature as a whole.
 Each repository task explains what that repository must change and how its agent must verify the result.
 The assignments file connects those tasks to the registered repositories.
 
-When implementation starts, RepoMux creates a separate run ID, such as `editable-delivery-notification-preferences-lejayt-run-cTq3cz`.
+When implementation starts, RepoMux creates a separate run ID, such as `editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi`.
 It records the current state of each product repository and gives each repository agent its own branch and worktree:
 
 ```text
@@ -296,7 +292,7 @@ Run a dry run first to see what RepoMux will change:
 ```bash
 repomux integrate \
   --project acme-commerce \
-  --run editable-delivery-notification-preferences-lejayt-run-cTq3cz \
+  --run editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi \
   --dry-run
 ```
 
@@ -305,7 +301,7 @@ Add `--show-diffs` when you want to review the complete pending Git diff for eac
 ```bash
 repomux integrate \
   --project acme-commerce \
-  --run editable-delivery-notification-preferences-lejayt-run-cTq3cz \
+  --run editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi \
   --dry-run \
   --show-diffs
 ```
@@ -317,7 +313,7 @@ If the plan looks correct, run the integration command without `--dry-run`:
 ```bash
 repomux integrate \
   --project acme-commerce \
-  --run editable-delivery-notification-preferences-lejayt-run-cTq3cz
+  --run editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi
 ```
 
 RepoMux asks for confirmation, commits the workflow documents, and fast-forwards each product branch to its completed feature commit.
@@ -440,13 +436,14 @@ If the project does not have a saved value, RepoMux uses the installation defaul
 
 ## Resume an incomplete run
 
-If an attempt fails but the repository is still safe to continue, RepoMux tries again in the same worktree and gives the next attempt the previous result.
-If the run uses all available attempts, resume it with the same run ID:
+If an attempt fails but can safely continue, RepoMux starts the next attempt in the same worktree and includes the previous result.
+After the run uses all configured attempts, increase the limit and resume the same run:
 
 ```bash
 bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/run-repository-agents.sh \
-  --resume editable-delivery-notification-preferences-lejayt-run-cTq3cz \
-  /work/acme-commerce-coordinate/tasks/editable-delivery-notification-preferences-lejayt/assignments.txt
+  --max-attempts 5 \
+  --resume editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi \
+  /work/acme-commerce-coordinate/tasks/editable-delivery-instructions-on-orders-grfhdd/assignments.txt
 ```
 
 RepoMux skips repositories that already finished.
@@ -455,9 +452,9 @@ Retry one blocked repository with:
 
 ```bash
 bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/run-repository-agents.sh \
-  --resume editable-delivery-notification-preferences-lejayt-run-cTq3cz \
+  --resume editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi \
   --retry-blocked api \
-  /work/acme-commerce-coordinate/tasks/editable-delivery-notification-preferences-lejayt/assignments.txt
+  /work/acme-commerce-coordinate/tasks/editable-delivery-instructions-on-orders-grfhdd/assignments.txt
 ```
 
 RepoMux preserves failed and blocked worktrees for review.
@@ -477,7 +474,7 @@ After review or integration, remove selected worktrees:
 ```bash
 repomux cleanup \
   --project acme-commerce \
-  --run editable-delivery-notification-preferences-lejayt-run-cTq3cz \
+  --run editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi \
   --repository api \
   --repository web
 ```
@@ -488,7 +485,7 @@ Use `--force` only when you have reviewed the uncommitted work and explicitly wa
 ```bash
 repomux cleanup \
   --project acme-commerce \
-  --run editable-delivery-notification-preferences-lejayt-run-cTq3cz \
+  --run editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi \
   --repository api \
   --force
 ```
@@ -501,7 +498,7 @@ Scaffold a new feature to create its requirements and related tasks:
 
 ```bash
 bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/scaffold-feature.sh \
-  --title "Editable delivery notification preferences" \
+  --title "Editable delivery instructions on orders" \
   api \
   web
 ```
@@ -514,7 +511,7 @@ Start repository agents and generate the run ID:
 ```bash
 bash /work/acme-commerce-coordinate/.agents/skills/repomux/scripts/run-repository-agents.sh \
   --reasoning-effort medium \
-  /work/acme-commerce-coordinate/tasks/editable-delivery-notification-preferences-lejayt/assignments.txt
+  /work/acme-commerce-coordinate/tasks/editable-delivery-instructions-on-orders-grfhdd/assignments.txt
 ```
 
 Pass an explicit run ID before the assignments file only when another system requires that exact ID.
