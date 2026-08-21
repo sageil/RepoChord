@@ -9,7 +9,7 @@ shell_scripts=(
   "$repository_directory/install.sh"
   "$repository_directory/uninstall.sh"
   "$repository_directory"/scripts/*.sh
-  "$repository_directory"/payload/.agents/skills/repomux/scripts/*.sh
+  "$repository_directory"/payload/.agents/skills/repochord/scripts/*.sh
   "$test_directory"/*.sh
   "$test_directory"/fixtures/*.sh
 )
@@ -35,15 +35,15 @@ done
 echo "Running ShellCheck"
 shellcheck -S warning "${shell_scripts[@]}"
 
-echo "Validating the RepoMux skill"
+echo "Validating the RepoChord skill"
 bash "$repository_directory/scripts/validate-skill.sh" \
-  "$repository_directory/payload/.agents/skills/repomux"
+  "$repository_directory/payload/.agents/skills/repochord"
 
-echo "Validating the RepoMux task-authoring skill"
+echo "Validating the RepoChord task-authoring skill"
 bash "$repository_directory/scripts/validate-task-skill.sh" \
-  "$repository_directory/payload/.agents/skills/create-repomux-task"
+  "$repository_directory/payload/.agents/skills/create-repochord-task"
 
 echo "Checking the Git diff"
 git -C "$repository_directory" diff --check
 
-echo "All RepoMux tests passed."
+echo "All RepoChord tests passed."

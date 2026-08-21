@@ -12,7 +12,6 @@ shift
 if [[ "${1:-}" == "--help" ]]; then
   printf '%s\n' \
     '--cd' \
-    '--sandbox' \
     '--ephemeral' \
     '--json' \
     '--model' \
@@ -28,7 +27,19 @@ result_path=""
 model=""
 profile=""
 reasoning_effort=""
-network_access_disabled=false
+approval_policy=""
+network_access_enabled=false
+network_proxy_enabled=false
+permission_profile=""
+permission_configuration=""
+filesystem_permissions_configured=false
+legacy_sandbox_used=false
+scratch_directory="${TMPDIR:-}"
+scratch_directory_exists=false
+scratch_directory_writable=false
+codex_sqlite_directory="${CODEX_SQLITE_HOME:-}"
+codex_sqlite_directory_exists=false
+codex_sqlite_directory_writable=false
 prompt=""
 ephemeral=false
 json_output=false
@@ -57,13 +68,25 @@ while [[ "$#" -gt 0 ]]; do
       if [[ "$config_value" == model_reasoning_effort=* ]]; then
         reasoning_effort="${config_value#model_reasoning_effort=\"}"
         reasoning_effort="${reasoning_effort%\"}"
-      elif [[ "$config_value" == "sandbox_workspace_write.network_access=false" ]]; then
-        network_access_disabled=true
+      elif [[ "$config_value" == 'approval_policy="never"' ]]; then
+        approval_policy="never"
+      elif [[ "$config_value" == 'features.network_proxy=true' ]]; then
+        network_proxy_enabled=true
+      elif [[ "$config_value" == 'default_permissions="repochord-repository-agent"' ]]; then
+        permission_profile="repochord-repository-agent"
+      elif [[ "$config_value" == permissions.repochord-repository-agent=* ]]; then
+        filesystem_permissions_configured=true
+        network_access_enabled=true
+        permission_configuration="$config_value"
       fi
 
       shift 2
       ;;
-    --sandbox|--color|--output-schema)
+    --sandbox)
+      legacy_sandbox_used=true
+      shift 2
+      ;;
+    --color|--output-schema)
       shift 2
       ;;
     --ephemeral)
@@ -107,26 +130,71 @@ if [[ -z "$repository_path" || -z "$result_path" || -z "$run_id" || -z "$reposit
   exit 2
 fi
 
+if [[ -n "$scratch_directory" && -d "$scratch_directory" ]]; then
+  scratch_directory_exists=true
+
+  scratch_probe="$scratch_directory/fake-codex-write-probe"
+
+  if : > "$scratch_probe"; then
+    scratch_directory_writable=true
+    rm -f -- "$scratch_probe"
+  fi
+fi
+
+if [[ -n "$codex_sqlite_directory" && -d "$codex_sqlite_directory" ]]; then
+  codex_sqlite_directory_exists=true
+  codex_sqlite_probe="$codex_sqlite_directory/fake-codex-write-probe"
+
+  if : > "$codex_sqlite_probe"; then
+    codex_sqlite_directory_writable=true
+    rm -f -- "$codex_sqlite_probe"
+  fi
+fi
+
 if [[ -n "${FAKE_CODEX_CAPTURE_DIRECTORY:-}" ]]; then
   mkdir -p "$FAKE_CODEX_CAPTURE_DIRECTORY"
   jq -n \
     --arg model "$model" \
     --arg profile "$profile" \
     --arg reasoning_effort "$reasoning_effort" \
+    --arg approval_policy "$approval_policy" \
+    --arg scratch_directory "$scratch_directory" \
+    --arg codex_sqlite_directory "$codex_sqlite_directory" \
     --arg bash_version "$BASH_VERSION" \
     --argjson ephemeral "$ephemeral" \
     --argjson json_output "$json_output" \
-    --argjson network_access_disabled "$network_access_disabled" \
+    --argjson network_access_enabled "$network_access_enabled" \
+    --argjson network_proxy_enabled "$network_proxy_enabled" \
+    --arg permission_profile "$permission_profile" \
+    --arg permission_configuration "$permission_configuration" \
+    --argjson filesystem_permissions_configured "$filesystem_permissions_configured" \
+    --argjson legacy_sandbox_used "$legacy_sandbox_used" \
+    --argjson scratch_directory_exists "$scratch_directory_exists" \
+    --argjson scratch_directory_writable "$scratch_directory_writable" \
+    --argjson codex_sqlite_directory_exists "$codex_sqlite_directory_exists" \
+    --argjson codex_sqlite_directory_writable "$codex_sqlite_directory_writable" \
     --argjson attempt "$attempt_number" \
     --argjson max_attempts "$maximum_attempts" \
     '{
       model: $model,
       profile: (if $profile == "" then null else $profile end),
       reasoning_effort: (if $reasoning_effort == "" then null else $reasoning_effort end),
+      approval_policy: (if $approval_policy == "" then null else $approval_policy end),
+      scratch_directory: (if $scratch_directory == "" then null else $scratch_directory end),
+      scratch_directory_exists: $scratch_directory_exists,
+      scratch_directory_writable: $scratch_directory_writable,
+      codex_sqlite_directory: (if $codex_sqlite_directory == "" then null else $codex_sqlite_directory end),
+      codex_sqlite_directory_exists: $codex_sqlite_directory_exists,
+      codex_sqlite_directory_writable: $codex_sqlite_directory_writable,
       bash_version: $bash_version,
       ephemeral: $ephemeral,
       json_output: $json_output,
-      network_access_disabled: $network_access_disabled,
+      network_access_enabled: $network_access_enabled,
+      network_proxy_enabled: $network_proxy_enabled,
+      permission_profile: (if $permission_profile == "" then null else $permission_profile end),
+      permission_configuration: (if $permission_configuration == "" then null else $permission_configuration end),
+      filesystem_permissions_configured: $filesystem_permissions_configured,
+      legacy_sandbox_used: $legacy_sandbox_used,
       attempt: $attempt,
       max_attempts: $max_attempts
     }' > "$FAKE_CODEX_CAPTURE_DIRECTORY/$repository_key.json"
@@ -281,7 +349,7 @@ case "$mode" in
       "$push_exit_code" -ne 126 ||
       "$alias_exit_code" -ne 126 ]]
     then
-      echo "RepoMux did not enforce read-only Git access." >&2
+      echo "RepoChord did not enforce read-only Git access." >&2
       exit 1
     fi
 
@@ -292,7 +360,7 @@ case "$mode" in
         run_id: $run_id,
         repository: $repository,
         status: "failed",
-        summary: "RepoMux allowed read-only Git and blocked Git changes.",
+        summary: "RepoChord allowed read-only Git and blocked Git changes.",
         commit: null,
         commit_message: null,
         tests: [{command: "guarded Git operations", status: "not_run", summary: "Read-only access enforced."}],

@@ -4,7 +4,7 @@ set -euo pipefail
 
 test_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repository_directory="$(cd -- "$test_directory/.." && pwd -P)"
-temporary_root="$(mktemp -d /private/tmp/repomux-repository-agent-test.XXXXXX)"
+temporary_root="$(mktemp -d /private/tmp/repochord-repository-agent-test.XXXXXX)"
 
 cleanup() {
   rm -rf -- "$temporary_root"
@@ -48,7 +48,7 @@ mkdir -p "$test_home"
 
 export HOME="$test_home"
 export XDG_CONFIG_HOME="$test_home/.config"
-unset XDG_BIN_HOME XDG_DATA_HOME REPOMUX_CONFIG_HOME REPOMUX_DATA_HOME
+unset XDG_BIN_HOME XDG_DATA_HOME REPOCHORD_CONFIG_HOME REPOCHORD_DATA_HOME
 
 HOME="$test_home" \
 "$repository_directory/install.sh" \
@@ -56,7 +56,7 @@ HOME="$test_home" \
   >/dev/null
 
 HOME="$test_home" \
-"$command_bin/repomux" init \
+"$command_bin/rchord" init \
   -p repository-agent-test \
   -c "$coordinate_repository" \
   --create-coordinate \
@@ -64,9 +64,9 @@ HOME="$test_home" \
   -r "web=$web_repository" \
   >/dev/null
 
-scaffolder="$coordinate_repository/.agents/skills/repomux/scripts/scaffold-feature.sh"
-runner="$coordinate_repository/.agents/skills/repomux/scripts/run-repository-agents.sh"
-repository_agent="$coordinate_repository/.agents/skills/repomux/scripts/run-repository-agent.sh"
+scaffolder="$coordinate_repository/.agents/skills/repochord/scripts/scaffold-feature.sh"
+runner="$coordinate_repository/.agents/skills/repochord/scripts/run-repository-agents.sh"
+repository_agent="$coordinate_repository/.agents/skills/repochord/scripts/run-repository-agent.sh"
 packet_fixture="$test_directory/fixtures/complete-scaffolded-packet.sh"
 
 api_base_commit="$(git -C "$api_repository" rev-parse HEAD)"
@@ -115,7 +115,10 @@ FAKE_CODEX_CAPTURE_DIRECTORY="$capture_directory" \
   >/dev/null
 
 for repository_key in api web; do
-  result_path="$coordinate_repository/.repomux/results/PROJECT-123-good/$repository_key.json"
+  result_path="$coordinate_repository/.repochord/results/PROJECT-123-good/$repository_key.json"
+  source_task="$coordinate_repository/.repochord/results/PROJECT-123-good/tasks/$repository_key.source.md"
+  completed_task="$coordinate_repository/.repochord/results/PROJECT-123-good/tasks/$repository_key.completed.md"
+  canonical_task="$coordinate_repository/tasks/PROJECT-123/$repository_key.md"
 
   if [[ "$repository_key" == "api" ]]; then
     expected_source_repository="$api_repository"
@@ -127,13 +130,15 @@ for repository_key in api web; do
     expected_base_branch="$web_base_branch"
   fi
 
-  expected_worktree="$coordinate_repository/.repomux/worktrees/PROJECT-123-good/$repository_key"
-  expected_worktree_branch="repomux/PROJECT-123-good/$repository_key"
+  expected_worktree="$coordinate_repository/.repochord/worktrees/PROJECT-123-good/$repository_key"
+  expected_private_repository="$coordinate_repository/.repochord/repositories/PROJECT-123-good/$repository_key.git"
+  expected_worktree_branch="repochord/PROJECT-123-good/$repository_key"
 
   jq -e \
     --arg source_repository "$expected_source_repository" \
     --arg base_commit "$expected_base_commit" \
     --arg base_branch "$expected_base_branch" \
+    --arg private_repository "$expected_private_repository" \
     --arg worktree "$expected_worktree" \
     --arg worktree_branch "$expected_worktree_branch" \
     '
@@ -157,6 +162,7 @@ for repository_key in api web; do
     .execution.attempt_count == 1 and
     .execution.max_attempts == 3 and
     .execution.source_repository_path == $source_repository and
+    .execution.private_repository_path == $private_repository and
     .execution.base_commit == $base_commit and
     .execution.base_branch == $base_branch and
     .execution.worktree_path == $worktree and
@@ -167,24 +173,61 @@ for repository_key in api web; do
   ' "$result_path" >/dev/null
 
   test -d "$expected_worktree"
+  test "$(git -C "$expected_private_repository" rev-parse --is-bare-repository)" = true
+  test "$(git -C "$expected_private_repository" rev-parse "refs/heads/$expected_worktree_branch")" = \
+    "$(jq -r '.commit' "$result_path")"
+  test "$(git -C "$expected_source_repository" worktree list --porcelain | grep -c '^worktree ')" = 1
+  if git -C "$expected_source_repository" show-ref --verify --quiet "refs/heads/$expected_worktree_branch"; then
+    echo "Repository-agent run wrote its feature branch into the source repository." >&2
+    exit 1
+  fi
   test "$(git -C "$expected_worktree" symbolic-ref --short HEAD)" = "$expected_worktree_branch"
   test "$(git -C "$expected_worktree" rev-parse HEAD)" = "$(jq -r '.commit' "$result_path")"
   test "$(git -C "$expected_worktree" log -1 --format=%s)" = "test: fake repository agent PROJECT-123-good"
   jq -e 'has("commit_message") | not' "$result_path" >/dev/null
 
-  jq -e '
+  jq -e \
+    --arg repository_key "$repository_key" \
+    --arg source_repository "$expected_source_repository" \
+    --arg private_repository "$expected_private_repository" \
+    '
+    .scratch_directory as $scratch_directory |
     .model == "gpt-5.6-terra" and
     .reasoning_effort == "medium" and
     .profile == "test-profile" and
     .ephemeral == true and
     .json_output == true and
-    .network_access_disabled == false and
+    .approval_policy == "never" and
+    .network_access_enabled == true and
+    .network_proxy_enabled == true and
+    .permission_profile == "repochord-repository-agent" and
+    .filesystem_permissions_configured == true and
+    (.permission_configuration | contains("\":root\" = \"read\"")) and
+    (.permission_configuration | contains(($scratch_directory | @json) + " = \"write\"")) and
+    (.permission_configuration | contains(($source_repository | @json) + " = \"read\"")) and
+    (.permission_configuration | contains(($private_repository | @json) + " = \"read\"")) and
+    (.permission_configuration | contains("\":minimal\"") | not) and
+    (.permission_configuration | contains("\":tmpdir\" = \"write\"" ) | not) and
+    (.permission_configuration | contains("\":slash_tmp\" = \"write\"" ) | not) and
+    .legacy_sandbox_used == false and
+    (.scratch_directory | type == "string" and contains("repochord-PROJECT-123-good-" + $repository_key)) and
+    .scratch_directory_exists == true and
+    .scratch_directory_writable == true and
+    (.codex_sqlite_directory | type == "string" and startswith($scratch_directory + "/")) and
+    .codex_sqlite_directory_exists == true and
+    .codex_sqlite_directory_writable == true and
     .attempt == 1 and
     .max_attempts == 3
-  ' "$capture_directory/$repository_key.json" >/dev/null
+    ' "$capture_directory/$repository_key.json" >/dev/null
 
-  test ! -e "$coordinate_repository/.repomux/results/PROJECT-123-good/$repository_key.attempt-1.events.jsonl"
-  test ! -e "$coordinate_repository/.repomux/results/PROJECT-123-good/$repository_key.attempt-1.agent.log"
+  test ! -e "$coordinate_repository/.repochord/results/PROJECT-123-good/$repository_key.attempt-1.events.jsonl"
+  test ! -e "$coordinate_repository/.repochord/results/PROJECT-123-good/$repository_key.attempt-1.agent.log"
+  test ! -e "$(jq -r '.scratch_directory' "$capture_directory/$repository_key.json")"
+  cmp "$canonical_task" "$source_task"
+  grep -Fqx -- '- [ ] The repository task is complete.' "$source_task"
+  grep -Fqx -- '- [x] The repository task is complete.' "$completed_task"
+  test "$(git -C "$coordinate_repository" hash-object -- "$canonical_task")" = \
+    "$(git -C "$coordinate_repository" hash-object -- "$source_task")"
 done
 
 test "$(git -C "$api_repository" rev-parse HEAD)" = "$api_base_commit"
@@ -213,7 +256,7 @@ then
   exit 1
 fi
 
-test "$auto_result_path" = "$coordinate_repository/.repomux/results/$auto_run_id/web.json"
+test "$auto_result_path" = "$coordinate_repository/.repochord/results/$auto_run_id/web.json"
 
 jq -e \
   --arg run_id "$auto_run_id" \
@@ -221,7 +264,7 @@ jq -e \
   "$auto_result_path" \
   >/dev/null
 
-if [[ -n "$(find "$coordinate_repository/.repomux/results" -maxdepth 1 -name '.run-id.*' -print -quit)" ]]; then
+if [[ -n "$(find "$coordinate_repository/.repochord/results" -maxdepth 1 -name '.run-id.*' -print -quit)" ]]; then
   echo "Runner left a run ID reservation behind." >&2
   exit 1
 fi
@@ -236,7 +279,7 @@ then
   exit 1
 fi
 
-test ! -e "$coordinate_repository/.repomux/results/PROJECT-123-invalid-reasoning"
+test ! -e "$coordinate_repository/.repochord/results/PROJECT-123-invalid-reasoning"
 
 if PATH="$fake_bin:$PATH" "$runner" \
   --max-parallel 0 \
@@ -248,7 +291,7 @@ then
   exit 1
 fi
 
-test ! -e "$coordinate_repository/.repomux/results/PROJECT-123-invalid-parallel"
+test ! -e "$coordinate_repository/.repochord/results/PROJECT-123-invalid-parallel"
 
 if PATH="$fake_bin:$PATH" "$runner" \
   --max-attempts 0 \
@@ -260,7 +303,7 @@ then
   exit 1
 fi
 
-test ! -e "$coordinate_repository/.repomux/results/PROJECT-123-invalid-attempts"
+test ! -e "$coordinate_repository/.repochord/results/PROJECT-123-invalid-attempts"
 
 if PATH="$fake_bin:$PATH" "$runner" \
   PROJECT..123-invalid-ref \
@@ -271,7 +314,7 @@ then
   exit 1
 fi
 
-test ! -e "$coordinate_repository/.repomux/results/PROJECT..123-invalid-ref"
+test ! -e "$coordinate_repository/.repochord/results/PROJECT..123-invalid-ref"
 
 if PATH="$fake_bin:$PATH" FAKE_CODEX_MODE=completed_failed_test "$runner" \
   PROJECT-123-failed-test \
@@ -298,7 +341,7 @@ jq -e '
   .execution.attempt_count == 2 and
   .execution.max_attempts == 2 and
   .execution.retry_safe == true
-' "$coordinate_repository/.repomux/results/PROJECT-123-empty-blocker/web.json" >/dev/null
+' "$coordinate_repository/.repochord/results/PROJECT-123-empty-blocker/web.json" >/dev/null
 
 jq -e '
   .status == "blocked" and
@@ -309,7 +352,7 @@ jq -e '
   .execution.retry_safe == false and
   .execution.attempt_count == 3 and
   .execution.max_attempts == 3
-' "$coordinate_repository/.repomux/results/PROJECT-123-failed-test/api.json" >/dev/null
+' "$coordinate_repository/.repochord/results/PROJECT-123-failed-test/api.json" >/dev/null
 
 if PATH="$fake_bin:$PATH" FAKE_CODEX_MODE=fail_after_commit "$runner" \
   PROJECT-123-fail-after-commit \
@@ -330,7 +373,7 @@ jq -e '
   .execution.worktree_clean == true and
   .execution.retry_safe == false and
   .execution.attempt_count == 1
-' "$coordinate_repository/.repomux/results/PROJECT-123-fail-after-commit/api.json" >/dev/null
+' "$coordinate_repository/.repochord/results/PROJECT-123-fail-after-commit/api.json" >/dev/null
 
 if PATH="$fake_bin:$PATH" FAKE_CODEX_MODE=fail_unchanged "$runner" \
   PROJECT-123-safe-failure \
@@ -356,10 +399,10 @@ jq -e '
     output_tokens: 60,
     reasoning_output_tokens: 15
   }
-' "$coordinate_repository/.repomux/results/PROJECT-123-safe-failure/web.json" >/dev/null
+' "$coordinate_repository/.repochord/results/PROJECT-123-safe-failure/web.json" >/dev/null
 
 if PATH="$fake_bin:$PATH" \
-  REPOMUX_MAX_ATTEMPTS=2 \
+  REPOCHORD_MAX_ATTEMPTS=2 \
   FAKE_CODEX_MODE=fail_unchanged \
   "$runner" \
     PROJECT-123-environment-attempts \
@@ -374,22 +417,23 @@ jq -e '
   .status == "failed" and
   .execution.attempt_count == 2 and
   .execution.max_attempts == 2
-' "$coordinate_repository/.repomux/results/PROJECT-123-environment-attempts/web.json" >/dev/null
+' "$coordinate_repository/.repochord/results/PROJECT-123-environment-attempts/web.json" >/dev/null
 
 failed_resume_worktree="$(jq -r \
   '.execution.worktree_path' \
-  "$coordinate_repository/.repomux/results/PROJECT-123-environment-attempts/web.json")"
+  "$coordinate_repository/.repochord/results/PROJECT-123-environment-attempts/web.json")"
 test -d "$failed_resume_worktree"
 
+HOME="$test_home" \
 PATH="$fake_bin:$PATH" \
-REPOMUX_MAX_ATTEMPTS=4 \
 FAKE_CODEX_MODE=completed \
-"$runner" \
-  --resume PROJECT-123-environment-attempts \
-  "$web_assignment" \
+"$command_bin/rchord" resume \
+  --project repository-agent-test \
+  --run PROJECT-123-environment-attempts \
+  --max-attempts 4 \
   >/dev/null
 
-resumed_result="$coordinate_repository/.repomux/results/PROJECT-123-environment-attempts/web.json"
+resumed_result="$coordinate_repository/.repochord/results/PROJECT-123-environment-attempts/web.json"
 
 jq -e '
   .status == "completed" and
@@ -417,14 +461,19 @@ test "$(jq -r '.execution.attempt_count' "$resumed_result")" = "3"
 
 HOME="$test_home" \
 PATH="$fake_bin:$PATH" \
-"$command_bin/repomux" cleanup \
+"$command_bin/rchord" cleanup \
   --project repository-agent-test \
   --run PROJECT-123-environment-attempts \
   --repository web \
   >/dev/null
 
 test ! -e "$failed_resume_worktree"
-test "$(git -C "$web_repository" rev-parse "refs/heads/repomux/PROJECT-123-environment-attempts/web")" = "$resumed_commit"
+resumed_private_repository="$(jq -r '.execution.private_repository_path' "$resumed_result")"
+test "$(git -C "$resumed_private_repository" rev-parse "refs/heads/repochord/PROJECT-123-environment-attempts/web")" = "$resumed_commit"
+if git -C "$web_repository" show-ref --verify --quiet "refs/heads/repochord/PROJECT-123-environment-attempts/web"; then
+  echo "Cleanup test found a RepoChord feature branch in the source repository." >&2
+  exit 1
+fi
 
 PATH="$fake_bin:$PATH" \
 FAKE_CODEX_MODE=fail_after_commit \
@@ -436,7 +485,7 @@ FAKE_CODEX_MODE=fail_after_commit \
 test "$(jq -r '.commit' "$resumed_result")" = "$resumed_commit"
 
 HOME="$test_home" \
-"$command_bin/repomux" config set \
+"$command_bin/rchord" config set \
   --project repository-agent-test \
   max-attempts 5 \
   >/dev/null
@@ -454,28 +503,28 @@ jq -e '
   .status == "failed" and
   .execution.attempt_count == 5 and
   .execution.max_attempts == 5
-' "$coordinate_repository/.repomux/results/PROJECT-123-stored-attempts/web.json" >/dev/null
+' "$coordinate_repository/.repochord/results/PROJECT-123-stored-attempts/web.json" >/dev/null
 
 HOME="$test_home" \
-"$command_bin/repomux" config set \
+"$command_bin/rchord" config set \
   --project repository-agent-test \
   max-attempts 3 \
   >/dev/null
 
 HOME="$test_home" \
-"$command_bin/repomux" config set \
+"$command_bin/rchord" config set \
   --project repository-agent-test \
   model stored-model \
   >/dev/null
 
 HOME="$test_home" \
-"$command_bin/repomux" config set \
+"$command_bin/rchord" config set \
   --project repository-agent-test \
   repository-agent-reasoning-effort low \
   >/dev/null
 
 HOME="$test_home" \
-"$command_bin/repomux" config set \
+"$command_bin/rchord" config set \
   --project repository-agent-test \
   max-parallel 1 \
   >/dev/null
@@ -491,7 +540,7 @@ jq -e '
   .status == "completed" and
   .execution.model == "stored-model" and
   .execution.reasoning_effort == "low"
-' "$coordinate_repository/.repomux/results/PROJECT-123-stored-settings/web.json" >/dev/null
+' "$coordinate_repository/.repochord/results/PROJECT-123-stored-settings/web.json" >/dev/null
 
 printf 'staged source change\n' >> "$web_repository/README.md"
 git -C "$web_repository" add README.md
@@ -511,7 +560,7 @@ FAKE_CODEX_MODE=completed \
   >/dev/null \
   2> "$allow_dirty_warning"
 
-allow_dirty_result="$coordinate_repository/.repomux/results/PROJECT-123-allow-dirty-source/web.json"
+allow_dirty_result="$coordinate_repository/.repochord/results/PROJECT-123-allow-dirty-source/web.json"
 allow_dirty_worktree="$(jq -r '.execution.worktree_path' "$allow_dirty_result")"
 
 jq -e \
@@ -535,7 +584,7 @@ rm -f -- "$web_repository/local-source-change.txt"
 
 PATH="$fake_bin:$PATH" \
 FAKE_CODEX_MODE=completed \
-REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT=medium \
+REPOCHORD_REPOSITORY_AGENT_REASONING_EFFORT=medium \
 "$runner" \
   PROJECT-123-environment-reasoning \
   "$web_assignment" \
@@ -544,10 +593,10 @@ REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT=medium \
 jq -e '
   .status == "completed" and
   .execution.reasoning_effort == "medium"
-' "$coordinate_repository/.repomux/results/PROJECT-123-environment-reasoning/web.json" >/dev/null
+' "$coordinate_repository/.repochord/results/PROJECT-123-environment-reasoning/web.json" >/dev/null
 
 if PATH="$fake_bin:$PATH" \
-  REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT=impossible \
+  REPOCHORD_REPOSITORY_AGENT_REASONING_EFFORT=impossible \
   "$runner" \
     PROJECT-123-invalid-environment-reasoning \
     "$web_assignment" \
@@ -557,10 +606,10 @@ then
   exit 1
 fi
 
-test ! -e "$coordinate_repository/.repomux/results/PROJECT-123-invalid-environment-reasoning"
+test ! -e "$coordinate_repository/.repochord/results/PROJECT-123-invalid-environment-reasoning"
 
 if PATH="$fake_bin:$PATH" \
-  REPOMUX_ALLOW_DIRTY_SOURCE=invalid \
+  REPOCHORD_ALLOW_DIRTY_SOURCE=invalid \
   "$runner" \
     PROJECT-123-invalid-allow-dirty-source \
     "$web_assignment" \
@@ -570,10 +619,10 @@ then
   exit 1
 fi
 
-test ! -e "$coordinate_repository/.repomux/results/PROJECT-123-invalid-allow-dirty-source"
+test ! -e "$coordinate_repository/.repochord/results/PROJECT-123-invalid-allow-dirty-source"
 
 if PATH="$fake_bin:$PATH" \
-  REPOMUX_MAX_PARALLEL=0 \
+  REPOCHORD_MAX_PARALLEL=0 \
   "$runner" \
     PROJECT-123-invalid-environment-parallel \
     "$web_assignment" \
@@ -583,22 +632,22 @@ then
   exit 1
 fi
 
-test ! -e "$coordinate_repository/.repomux/results/PROJECT-123-invalid-environment-parallel"
+test ! -e "$coordinate_repository/.repochord/results/PROJECT-123-invalid-environment-parallel"
 
 HOME="$test_home" \
-"$command_bin/repomux" config set \
+"$command_bin/rchord" config set \
   --project repository-agent-test \
   model gpt-5.6-terra \
   >/dev/null
 
 HOME="$test_home" \
-"$command_bin/repomux" config set \
+"$command_bin/rchord" config set \
   --project repository-agent-test \
   repository-agent-reasoning-effort high \
   >/dev/null
 
 HOME="$test_home" \
-"$command_bin/repomux" config set \
+"$command_bin/rchord" config set \
   --project repository-agent-test \
   max-parallel 2 \
   >/dev/null
@@ -618,7 +667,7 @@ jq -e '
   .execution.attempt_count == 1 and
   .execution.head_changed == false and
   .execution.worktree_clean == true
-' "$coordinate_repository/.repomux/results/PROJECT-123-guarded-git/web.json" >/dev/null
+' "$coordinate_repository/.repochord/results/PROJECT-123-guarded-git/web.json" >/dev/null
 
 PATH="$fake_bin:$PATH" \
 FAKE_CODEX_MODE=fail_dirty_then_complete \
@@ -640,7 +689,7 @@ jq -e '
   } and
   .execution.head_changed == true and
   .execution.worktree_clean == true
-' "$coordinate_repository/.repomux/results/PROJECT-123-repaired/web.json" >/dev/null
+' "$coordinate_repository/.repochord/results/PROJECT-123-repaired/web.json" >/dev/null
 
 jq -e '.attempt == 1 and .max_attempts == 3' "$capture_directory/web-attempt-1.json" >/dev/null
 jq -e '.attempt == 2 and .max_attempts == 3' "$capture_directory/web-attempt-2.json" >/dev/null
@@ -658,13 +707,35 @@ jq -e '
   .execution.model == "gpt-5.6-terra" and
   .execution.reasoning_effort == "high" and
   .execution.profile == null
-' "$coordinate_repository/.repomux/results/PROJECT-123-defaults/web.json" >/dev/null
+' "$coordinate_repository/.repochord/results/PROJECT-123-defaults/web.json" >/dev/null
 
-jq -e '
+jq -e \
+  --arg source_repository "$web_repository" \
+  --arg private_repository "$coordinate_repository/.repochord/repositories/PROJECT-123-defaults/web.git" \
+  '
+  .scratch_directory as $scratch_directory |
   .model == "gpt-5.6-terra" and
   .reasoning_effort == "high" and
   .profile == null and
-  .network_access_disabled == false
+  .approval_policy == "never" and
+  .network_access_enabled == true and
+  .network_proxy_enabled == true and
+  .permission_profile == "repochord-repository-agent" and
+  .filesystem_permissions_configured == true and
+  (.permission_configuration | contains("\":root\" = \"read\"")) and
+  (.permission_configuration | contains(($scratch_directory | @json) + " = \"write\"")) and
+  (.permission_configuration | contains(($source_repository | @json) + " = \"read\"")) and
+  (.permission_configuration | contains(($private_repository | @json) + " = \"read\"")) and
+  (.permission_configuration | contains("\":minimal\"") | not) and
+  (.permission_configuration | contains("\":tmpdir\" = \"write\"" ) | not) and
+  (.permission_configuration | contains("\":slash_tmp\" = \"write\"" ) | not) and
+  .legacy_sandbox_used == false and
+  (.scratch_directory | type == "string" and contains("repochord-PROJECT-123-defaults-web")) and
+  .scratch_directory_exists == true and
+  .scratch_directory_writable == true and
+  (.codex_sqlite_directory | type == "string" and startswith($scratch_directory + "/")) and
+  .codex_sqlite_directory_exists == true and
+  .codex_sqlite_directory_writable == true
 ' "$capture_directory/web.json" >/dev/null
 
 PATH="$bash32_bin:/usr/bin:/bin" \
@@ -678,7 +749,7 @@ FAKE_CODEX_CAPTURE_DIRECTORY="$capture_directory/bash32" \
 jq -e '
   .status == "completed" and
   .execution.attempt_count == 1
-' "$coordinate_repository/.repomux/results/PROJECT-123-bash32/web.json" >/dev/null
+' "$coordinate_repository/.repochord/results/PROJECT-123-bash32/web.json" >/dev/null
 
 jq -e '.bash_version | startswith("3.2.")' "$capture_directory/bash32/web.json" >/dev/null
 
@@ -702,7 +773,7 @@ then
   exit 1
 fi
 
-test ! -e "$coordinate_repository/.repomux/results/PROJECT-123-duplicate-path"
+test ! -e "$coordinate_repository/.repochord/results/PROJECT-123-duplicate-path"
 
 if PATH="$fake_bin:$PATH" "$repository_agent" \
   api \
@@ -723,10 +794,10 @@ jq -e '
   .execution.retry_safe == false and
   .execution.attempt_count == 0 and
   .execution.max_attempts == 3
-' "$coordinate_repository/.repomux/results/PROJECT-123-empty/api.json" >/dev/null
+' "$coordinate_repository/.repochord/results/PROJECT-123-empty/api.json" >/dev/null
 
 if PATH="$fake_bin:$PATH" \
-  REPOMUX_MAX_ATTEMPTS=4 \
+  REPOCHORD_MAX_ATTEMPTS=4 \
   FAKE_CODEX_MODE=always_fail_dirty \
   "$runner" \
   --max-attempts 2 \
@@ -749,28 +820,28 @@ jq -e '
   .execution.retry_safe == false and
   .execution.attempt_count == 2 and
   .execution.max_attempts == 2
-' "$coordinate_repository/.repomux/results/PROJECT-123-attempt-limit/api.json" >/dev/null
+' "$coordinate_repository/.repochord/results/PROJECT-123-attempt-limit/api.json" >/dev/null
 
 blocked_worktree="$(jq -r \
   '.execution.worktree_path' \
-  "$coordinate_repository/.repomux/results/PROJECT-123-attempt-limit/api.json")"
+  "$coordinate_repository/.repochord/results/PROJECT-123-attempt-limit/api.json")"
 test -d "$blocked_worktree"
 test -n "$(git -C "$blocked_worktree" status --porcelain)"
 
-if HOME="$test_home" PATH="$fake_bin:$PATH" "$command_bin/repomux" cleanup \
+if HOME="$test_home" PATH="$fake_bin:$PATH" "$command_bin/rchord" cleanup \
   --project repository-agent-test \
   --run PROJECT-123-attempt-limit \
   --repository api \
   >/dev/null 2>&1
 then
-  echo "Cleanup unexpectedly removed a dirty RepoMux worktree without --force." >&2
+  echo "Cleanup unexpectedly removed a dirty RepoChord worktree without --force." >&2
   exit 1
 fi
 
 test -d "$blocked_worktree"
 
 if PATH="$fake_bin:$PATH" \
-  REPOMUX_MAX_ATTEMPTS=3 \
+  REPOCHORD_MAX_ATTEMPTS=3 \
   FAKE_CODEX_MODE=completed \
   "$runner" \
     --resume PROJECT-123-attempt-limit \
@@ -782,27 +853,28 @@ then
 fi
 
 jq -e '.status == "blocked" and .execution.attempt_count == 2' \
-  "$coordinate_repository/.repomux/results/PROJECT-123-attempt-limit/api.json" \
+  "$coordinate_repository/.repochord/results/PROJECT-123-attempt-limit/api.json" \
   >/dev/null
 
+HOME="$test_home" \
 PATH="$fake_bin:$PATH" \
-REPOMUX_MAX_ATTEMPTS=3 \
 FAKE_CODEX_MODE=completed \
-"$runner" \
-  --resume PROJECT-123-attempt-limit \
+"$command_bin/rchord" resume \
+  --project repository-agent-test \
+  --run PROJECT-123-attempt-limit \
+  --max-attempts 3 \
   --retry-blocked api \
-  "$api_assignment" \
   >/dev/null
 
 jq -e '
   .status == "completed" and
   .execution.attempt_count == 3 and
   .execution.max_attempts == 3
-' "$coordinate_repository/.repomux/results/PROJECT-123-attempt-limit/api.json" >/dev/null
+' "$coordinate_repository/.repochord/results/PROJECT-123-attempt-limit/api.json" >/dev/null
 
 HOME="$test_home" \
 PATH="$fake_bin:$PATH" \
-"$command_bin/repomux" cleanup \
+"$command_bin/rchord" cleanup \
   --project repository-agent-test \
   --run PROJECT-123-attempt-limit \
   --repository api \

@@ -1,18 +1,18 @@
 ---
-name: create-repomux-task
-description: Create structured RepoMux feature requests and repository task files for autonomous repository-agent execution. Use from the RepoMux coordination workflow after participating repositories are selected and before the proposal is presented.
+name: create-repochord-task
+description: Create structured RepoChord feature requests and repository task files for autonomous repository-agent execution. Use from the RepoChord coordination workflow after participating repositories are selected and before the proposal is presented.
 ---
 
-# Create RepoMux tasks
+# Create RepoChord tasks
 
 Create one feature request and one bounded task for each participating repository.
 
-The existing `repomux` skill owns user interaction, approval, and execution.
+The existing `repochord` skill owns user interaction, approval, and execution.
 This skill only prepares and validates the task packet.
 
 ## Prerequisites
 
-Read `.repomux/repositories.json` first.
+Read `.repochord/repositories.json` first.
 Stop if it does not exist or if fewer than two registered repositories participate in the requested outcome.
 
 ## Task creation workflow
@@ -71,17 +71,17 @@ Do not require a full test suite or a new test file unless the requested change 
 Run:
 
 ```bash
-bash .agents/skills/repomux/scripts/validate-task-packet.sh \
+bash .agents/skills/repochord/scripts/validate-task-packet.sh \
   <absolute-assignments-file>
 ```
 
 If validation reports structural defects, correct the task packet and run the same command again.
 Do not present the proposal until validation passes.
-If a reported defect cannot be corrected without a material product decision, return that decision to the `repomux` skill.
+If a reported defect cannot be corrected without a material product decision, return that decision to the `repochord` skill.
 
-### Step 7: Return control to RepoMux
+### Step 7: Return control to RepoChord
 
-Return the feature ID, each repository outcome, shared contract, verification commands, and commit messages to the `repomux` skill.
+Return the feature ID, each repository outcome, shared contract, verification commands, and commit messages to the `repochord` skill.
 Do not ask for approval and do not start repository agents.
 
 ## Context discipline
@@ -117,12 +117,12 @@ Order repository outcomes so that producers and consumers agree on:
 - Authorization.
 - State changes and failure behavior.
 
-RepoMux repository agents can run in parallel.
+RepoChord repository agents can run in parallel.
 Do not write a task that requires another repository agent's uncommitted worktree output.
 
 ## Definition of ready
 
-Before returning control to RepoMux, confirm:
+Before returning control to RepoChord, confirm:
 
 - The feature request states the user-visible or operational outcome.
 - Every participating repository has one task and one assignment.
@@ -136,7 +136,7 @@ Before returning control to RepoMux, confirm:
 - Verification commands are confirmed by the repository and exercise the stated outcome.
 - Documentation impact is explicit.
 - The commit message is a Conventional Commit.
-- Guardrails prevent scope expansion and Git operations owned by RepoMux.
+- Guardrails prevent scope expansion and Git operations owned by RepoChord.
 - `validate-task-packet.sh` passes.
 
 ## Prevent empty completion
@@ -148,5 +148,5 @@ In that case, require verification evidence and report the task as blocked by an
 
 ## Git ownership
 
-RepoMux creates one repository commit after the repository agent completes the task and passes verification.
+RepoChord creates one repository commit after the repository agent completes the task and passes verification.
 Repository tasks must not instruct agents to stage, commit, push, merge, pull, or rebase.

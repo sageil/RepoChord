@@ -72,16 +72,16 @@ for required_command in "${required_commands[@]}"; do
 done
 
 if [[ "$generate_feature_id" != true ]] &&
-  ! git check-ref-format "refs/heads/repomux/$feature_id-run-validation/repository" >/dev/null 2>&1
+  ! git check-ref-format "refs/heads/repochord/$feature_id-run-validation/repository" >/dev/null 2>&1
 then
-  echo "Feature ID cannot form a valid RepoMux branch: $feature_id" >&2
+  echo "Feature ID cannot form a valid RepoChord branch: $feature_id" >&2
   exit 2
 fi
 
 script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 skill_directory="$(cd -- "$script_directory/.." && pwd -P)"
 coordinate_root="$(git -C "$skill_directory" rev-parse --show-toplevel)"
-registry_path="$coordinate_root/.repomux/repositories.json"
+registry_path="$coordinate_root/.repochord/repositories.json"
 
 resolved_existing_feature_id=""
 
@@ -187,7 +187,7 @@ if [[ "$generate_feature_id" == true ]]; then
     reuse_existing_feature=true
   else
     while true; do
-      identifier_reservation="$(mktemp -d "$coordinate_root/.repomux-feature-id.XXXXXX")"
+      identifier_reservation="$(mktemp -d "$coordinate_root/.repochord-feature-id.XXXXXX")"
       identifier_suffix="$(basename -- "$identifier_reservation")"
       identifier_suffix="${identifier_suffix##*.}"
       identifier_suffix="$(printf '%s' "$identifier_suffix" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
@@ -225,7 +225,7 @@ repository_paths=()
 
 for repository_key in "$@"; do
   if [[ ! "$repository_key" =~ ^[A-Za-z0-9._-]+$ ]] ||
-    ! git check-ref-format "refs/heads/repomux/validation/$repository_key" >/dev/null 2>&1
+    ! git check-ref-format "refs/heads/repochord/validation/$repository_key" >/dev/null 2>&1
   then
     echo "Repository key contains unsupported characters: $repository_key" >&2
     exit 2
@@ -298,7 +298,7 @@ if [[ "$reuse_existing_feature" == true ]]; then
   exit 0
 fi
 
-staging_directory="$(mktemp -d "$coordinate_root/.repomux-feature.${feature_id}.XXXXXX")"
+staging_directory="$(mktemp -d "$coordinate_root/.repochord-feature.${feature_id}.XXXXXX")"
 
 mkdir -p "$staging_directory/tasks/$feature_id"
 

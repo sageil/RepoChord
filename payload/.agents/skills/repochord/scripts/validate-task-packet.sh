@@ -72,7 +72,7 @@ done
 script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 skill_directory="$(cd -- "$script_directory/.." && pwd -P)"
 coordinate_root="$(git -C "$skill_directory" rev-parse --show-toplevel)"
-registry_path="$coordinate_root/.repomux/repositories.json"
+registry_path="$coordinate_root/.repochord/repositories.json"
 canonical_assignments_file="$(cd -- "$(dirname -- "$assignments_file")" && pwd -P)/$(basename -- "$assignments_file")"
 tasks_root="$coordinate_root/tasks"
 
@@ -205,7 +205,7 @@ while IFS='|' read -r repository_key repository_path task_file extra_field || [[
 done < "$canonical_assignments_file"
 
 if [[ "$assignment_count" -lt 2 ]]; then
-  fail "RepoMux task packets require at least two repository assignments."
+  fail "RepoChord task packets require at least two repository assignments."
 fi
 
 echo "Task packet validation passed: $feature_id"

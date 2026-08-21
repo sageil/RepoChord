@@ -6,24 +6,24 @@ usage() {
   echo "Usage: install.sh [--upgrade] [--bin-dir <absolute-directory>] [--default-model <model>] [--default-coordinator-reasoning-effort <effort>] [--default-repository-agent-reasoning-effort <effort>] [--default-max-parallel <count>]" >&2
 }
 
-is_repomux_command() {
+is_rchord_command() {
   local path="$1"
 
   [[ -f "$path" ]] &&
-    grep -Fq 'repomux init -p <name>' "$path" &&
-    grep -Fq 'source_skill="$repomux_data_directory/skill"' "$path"
+    grep -Fq 'rchord init -p <name>' "$path" &&
+    grep -Fq 'source_skill="$repochord_data_directory/skill"' "$path"
 }
 
-is_repomux_skill() {
+is_repochord_skill() {
   local path="$1"
 
-  [[ -d "$path" && -f "$path/SKILL.md" ]] && grep -Fq 'name: repomux' "$path/SKILL.md"
+  [[ -d "$path" && -f "$path/SKILL.md" ]] && grep -Fq 'name: repochord' "$path/SKILL.md"
 }
 
-is_repomux_task_skill() {
+is_repochord_task_skill() {
   local path="$1"
 
-  [[ -d "$path" && -f "$path/SKILL.md" ]] && grep -Fq 'name: create-repomux-task' "$path/SKILL.md"
+  [[ -d "$path" && -f "$path/SKILL.md" ]] && grep -Fq 'name: create-repochord-task' "$path/SKILL.md"
 }
 
 replace_managed_directory() {
@@ -36,7 +36,7 @@ replace_managed_directory() {
   local previous_directory=""
 
   parent_directory="$(dirname -- "$destination_directory")"
-  replacement_directory="$(mktemp -d "$parent_directory/.repomux-replacement.XXXXXX")"
+  replacement_directory="$(mktemp -d "$parent_directory/.repochord-replacement.XXXXXX")"
 
   if ! cp -R "$source_directory/." "$replacement_directory/"; then
     rm -rf -- "$replacement_directory"
@@ -56,7 +56,7 @@ replace_managed_directory() {
   fi
 
   if [[ -d "$destination_directory" ]]; then
-    previous_directory="$(mktemp -d "$parent_directory/.repomux-previous.XXXXXX")"
+    previous_directory="$(mktemp -d "$parent_directory/.repochord-previous.XXXXXX")"
     rmdir "$previous_directory"
 
     if ! mv -- "$destination_directory" "$previous_directory"; then
@@ -68,7 +68,7 @@ replace_managed_directory() {
   if ! mv -- "$replacement_directory" "$destination_directory"; then
     if [[ -n "$previous_directory" ]]; then
       if ! mv -- "$previous_directory" "$destination_directory"; then
-        echo "Could not restore the previous RepoMux directory. Recovery copy: $previous_directory" >&2
+        echo "Could not restore the previous RepoChord directory. Recovery copy: $previous_directory" >&2
       fi
     fi
     rm -rf -- "$replacement_directory"
@@ -81,7 +81,7 @@ replace_managed_directory() {
     rm -rf -- "$destination_directory"
     if [[ -n "$previous_directory" ]]; then
       if ! mv -- "$previous_directory" "$destination_directory"; then
-        echo "Could not restore the previous RepoMux directory. Recovery copy: $previous_directory" >&2
+        echo "Could not restore the previous RepoChord directory. Recovery copy: $previous_directory" >&2
       fi
     fi
     return 1
@@ -249,8 +249,8 @@ if [[ ! "$default_max_parallel" =~ ^[1-9][0-9]*$ || "${#default_max_parallel}" -
   exit 2
 fi
 
-if [[ -z "${HOME:-}" && -z "${XDG_DATA_HOME:-}" && -z "${REPOMUX_DATA_HOME:-}" ]]; then
-  echo "HOME, XDG_DATA_HOME, and REPOMUX_DATA_HOME are unset." >&2
+if [[ -z "${HOME:-}" && -z "${XDG_DATA_HOME:-}" && -z "${REPOCHORD_DATA_HOME:-}" ]]; then
+  echo "HOME, XDG_DATA_HOME, and REPOCHORD_DATA_HOME are unset." >&2
   exit 2
 fi
 
@@ -270,32 +270,32 @@ if [[ "$bin_directory" != /* ]]; then
   exit 2
 fi
 
-if [[ -n "${REPOMUX_DATA_HOME:-}" ]]; then
-  data_directory="$REPOMUX_DATA_HOME"
+if [[ -n "${REPOCHORD_DATA_HOME:-}" ]]; then
+  data_directory="$REPOCHORD_DATA_HOME"
 elif [[ -n "${XDG_DATA_HOME:-}" ]]; then
-  data_directory="$XDG_DATA_HOME/repomux"
+  data_directory="$XDG_DATA_HOME/repochord"
 else
-  data_directory="$HOME/.local/share/repomux"
+  data_directory="$HOME/.local/share/repochord"
 fi
 
 if [[ "$data_directory" != /* ]]; then
-  echo "RepoMux data directory must be an absolute path: $data_directory" >&2
+  echo "RepoChord data directory must be an absolute path: $data_directory" >&2
   exit 2
 fi
 
-if [[ -n "${REPOMUX_CONFIG_HOME:-}" ]]; then
-  config_directory="$REPOMUX_CONFIG_HOME"
+if [[ -n "${REPOCHORD_CONFIG_HOME:-}" ]]; then
+  config_directory="$REPOCHORD_CONFIG_HOME"
 elif [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
-  config_directory="$XDG_CONFIG_HOME/repomux"
+  config_directory="$XDG_CONFIG_HOME/repochord"
 elif [[ -n "${HOME:-}" ]]; then
-  config_directory="$HOME/.config/repomux"
+  config_directory="$HOME/.config/repochord"
 else
-  echo "HOME, XDG_CONFIG_HOME, and REPOMUX_CONFIG_HOME are unset." >&2
+  echo "HOME, XDG_CONFIG_HOME, and REPOCHORD_CONFIG_HOME are unset." >&2
   exit 2
 fi
 
 if [[ "$config_directory" != /* ]]; then
-  echo "RepoMux configuration directory must be an absolute path: $config_directory" >&2
+  echo "RepoChord configuration directory must be an absolute path: $config_directory" >&2
   exit 2
 fi
 
@@ -307,39 +307,39 @@ for required_command in cp diff grep jq mktemp mv; do
 done
 
 installer_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-source_command="$installer_directory/payload/repomux"
-source_skill="$installer_directory/payload/.agents/skills/repomux"
-source_task_skill="$installer_directory/payload/.agents/skills/create-repomux-task"
+source_command="$installer_directory/payload/rchord"
+source_skill="$installer_directory/payload/.agents/skills/repochord"
+source_task_skill="$installer_directory/payload/.agents/skills/create-repochord-task"
 skill_validator="$installer_directory/scripts/validate-skill.sh"
 task_skill_validator="$installer_directory/scripts/validate-task-skill.sh"
 
 if [[ ! -f "$source_command" ]]; then
-  echo "RepoMux command payload is missing: $source_command" >&2
+  echo "RepoChord command payload is missing: $source_command" >&2
   exit 1
 fi
 
 if [[ ! -d "$source_skill" ]]; then
-  echo "RepoMux skill payload is missing: $source_skill" >&2
+  echo "RepoChord skill payload is missing: $source_skill" >&2
   exit 1
 fi
 
 if [[ ! -d "$source_task_skill" ]]; then
-  echo "RepoMux task-authoring skill payload is missing: $source_task_skill" >&2
+  echo "RepoChord task-authoring skill payload is missing: $source_task_skill" >&2
   exit 1
 fi
 
 if [[ ! -x "$skill_validator" ]]; then
-  echo "RepoMux skill validator is missing or not executable: $skill_validator" >&2
+  echo "RepoChord skill validator is missing or not executable: $skill_validator" >&2
   exit 1
 fi
 
 if [[ ! -x "$task_skill_validator" ]]; then
-  echo "RepoMux task-authoring skill validator is missing or not executable: $task_skill_validator" >&2
+  echo "RepoChord task-authoring skill validator is missing or not executable: $task_skill_validator" >&2
   exit 1
 fi
 
 if [[ ! -x "$source_command" ]]; then
-  echo "RepoMux command payload is not executable: $source_command" >&2
+  echo "RepoChord command payload is not executable: $source_command" >&2
   exit 1
 fi
 
@@ -352,90 +352,90 @@ if [[ -e "$bin_directory" && ! -d "$bin_directory" ]]; then
 fi
 
 if [[ -e "$data_directory" && ! -d "$data_directory" ]]; then
-  echo "RepoMux data path is not a directory: $data_directory" >&2
+  echo "RepoChord data path is not a directory: $data_directory" >&2
   exit 2
 fi
 
 if [[ -L "$config_directory" ]]; then
-  echo "Refusing to use a symbolic link as the RepoMux configuration directory: $config_directory" >&2
+  echo "Refusing to use a symbolic link as the RepoChord configuration directory: $config_directory" >&2
   exit 1
 fi
 
 if [[ -e "$config_directory" && ! -d "$config_directory" ]]; then
-  echo "RepoMux configuration path is not a directory: $config_directory" >&2
+  echo "RepoChord configuration path is not a directory: $config_directory" >&2
   exit 2
 fi
 
-command_path="$bin_directory/repomux"
+command_path="$bin_directory/rchord"
 installed_skill="$data_directory/skill"
 installed_task_skill="$data_directory/task-skill"
 projects_registry="$config_directory/projects.json"
 
 if [[ -L "$command_path" ]]; then
-  echo "Refusing to use a symbolic link as the RepoMux command: $command_path" >&2
+  echo "Refusing to use a symbolic link as the RepoChord command: $command_path" >&2
   exit 1
 fi
 
 if [[ -L "$installed_skill" ]]; then
-  echo "Refusing to use a symbolic link as the RepoMux skill: $installed_skill" >&2
+  echo "Refusing to use a symbolic link as the RepoChord skill: $installed_skill" >&2
   exit 1
 fi
 
 if [[ -L "$installed_task_skill" ]]; then
-  echo "Refusing to use a symbolic link as the RepoMux task-authoring skill: $installed_task_skill" >&2
+  echo "Refusing to use a symbolic link as the RepoChord task-authoring skill: $installed_task_skill" >&2
   exit 1
 fi
 
 if [[ -L "$projects_registry" ]]; then
-  echo "Refusing to use a symbolic link as the RepoMux project registry: $projects_registry" >&2
+  echo "Refusing to use a symbolic link as the RepoChord project registry: $projects_registry" >&2
   exit 1
 fi
 
 if [[ -e "$projects_registry" && ! -f "$projects_registry" ]]; then
-  echo "RepoMux project registry is not a regular file: $projects_registry" >&2
+  echo "RepoChord project registry is not a regular file: $projects_registry" >&2
   exit 2
 fi
 
 if [[ -f "$projects_registry" ]] && ! validate_projects_registry_file "$projects_registry"; then
-  echo "RepoMux project registry is invalid: $projects_registry" >&2
+  echo "RepoChord project registry is invalid: $projects_registry" >&2
   exit 1
 fi
 
 if [[ -e "$command_path" ]] && ! diff -q "$source_command" "$command_path" >/dev/null; then
   if [[ "$upgrade_install" != true ]]; then
     echo "Command path already contains a different file: $command_path" >&2
-    echo "Use --upgrade to replace an existing RepoMux installation." >&2
+    echo "Use --upgrade to replace an existing RepoChord installation." >&2
     exit 1
   fi
 
-  if ! is_repomux_command "$command_path"; then
-    echo "Refusing to replace a command that is not an identifiable RepoMux command: $command_path" >&2
+  if ! is_rchord_command "$command_path"; then
+    echo "Refusing to replace a command that is not an identifiable RepoChord command: $command_path" >&2
     exit 1
   fi
 fi
 
 if [[ -e "$installed_skill" ]] && ! diff -qr "$source_skill" "$installed_skill" >/dev/null; then
   if [[ "$upgrade_install" != true ]]; then
-    echo "Installed RepoMux skill differs from this package: $installed_skill" >&2
-    echo "Use --upgrade to replace an existing RepoMux installation." >&2
+    echo "Installed RepoChord skill differs from this package: $installed_skill" >&2
+    echo "Use --upgrade to replace an existing RepoChord installation." >&2
     exit 1
   fi
 
-  if ! is_repomux_skill "$installed_skill"; then
-    echo "Refusing to replace a directory that is not an identifiable RepoMux skill: $installed_skill" >&2
+  if ! is_repochord_skill "$installed_skill"; then
+    echo "Refusing to replace a directory that is not an identifiable RepoChord skill: $installed_skill" >&2
     exit 1
   fi
 fi
 
 if [[ -e "$installed_task_skill" ]] && ! diff -qr "$source_task_skill" "$installed_task_skill" >/dev/null; then
   if [[ "$upgrade_install" != true ]]; then
-    echo "Installed RepoMux task-authoring skill differs from this package: $installed_task_skill" >&2
-    echo "Use --upgrade to replace an existing RepoMux installation." >&2
+    echo "Installed RepoChord task-authoring skill differs from this package: $installed_task_skill" >&2
+    echo "Use --upgrade to replace an existing RepoChord installation." >&2
     exit 1
   fi
 
-  if ! is_repomux_task_skill "$installed_task_skill"; then
-    echo "Refusing to replace a directory that is not an identifiable RepoMux task-authoring skill: $installed_task_skill" >&2
+  if ! is_repochord_task_skill "$installed_task_skill"; then
+    echo "Refusing to replace a directory that is not an identifiable RepoChord task-authoring skill: $installed_task_skill" >&2
     exit 1
   fi
 fi
@@ -459,7 +459,7 @@ mkdir -p "$bin_directory" "$data_directory" "$config_directory"
 bin_directory="$(cd -- "$bin_directory" && pwd -P)"
 data_directory="$(cd -- "$data_directory" && pwd -P)"
 config_directory="$(cd -- "$config_directory" && pwd -P)"
-command_path="$bin_directory/repomux"
+command_path="$bin_directory/rchord"
 installed_skill="$data_directory/skill"
 installed_task_skill="$data_directory/task-skill"
 projects_registry="$config_directory/projects.json"
@@ -524,12 +524,12 @@ else
 fi
 
 if ! validate_projects_registry_file "$projects_stage"; then
-  echo "Generated RepoMux project registry is invalid: $projects_stage" >&2
+  echo "Generated RepoChord project registry is invalid: $projects_stage" >&2
   exit 1
 fi
 
 if [[ ! -e "$command_path" ]] || ! diff -q "$source_command" "$command_path" >/dev/null; then
-  command_stage="$(mktemp "$bin_directory/.repomux.XXXXXX")"
+  command_stage="$(mktemp "$bin_directory/.repochord.XXXXXX")"
   cp "$source_command" "$command_stage"
   chmod +x "$command_stage"
   mv -- "$command_stage" "$command_path"
@@ -547,7 +547,7 @@ then
     "$task_skill_validator" \
     false
   then
-    echo "Could not install the RepoMux task-authoring skill: $installed_task_skill" >&2
+    echo "Could not install the RepoChord task-authoring skill: $installed_task_skill" >&2
     exit 1
   fi
 fi
@@ -559,7 +559,7 @@ if [[ ! -e "$installed_skill" ]] || ! diff -qr "$source_skill" "$installed_skill
     "$skill_validator" \
     true
   then
-    echo "Could not install the RepoMux skill: $installed_skill" >&2
+    echo "Could not install the RepoChord skill: $installed_skill" >&2
     exit 1
   fi
 fi
@@ -569,7 +569,7 @@ chmod +x "$installed_skill"/scripts/*.sh
 mv -- "$projects_stage" "$projects_registry"
 projects_stage=""
 
-echo "RepoMux installed."
+echo "RepoChord installed."
 echo "Command: $command_path"
 echo "Data: $data_directory"
 echo "Configuration: $projects_registry"
@@ -587,4 +587,4 @@ case ":${PATH:-}:" in
     ;;
 esac
 
-echo "Next: repomux init -p <name> -c <path> -r <key=path>"
+echo "Next: rchord init -p <name> -c <path> -r <key=path>"

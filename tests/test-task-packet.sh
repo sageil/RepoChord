@@ -4,7 +4,7 @@ set -euo pipefail
 
 test_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repository_directory="$(cd -- "$test_directory/.." && pwd -P)"
-temporary_root="$(mktemp -d /private/tmp/repomux-task-packet-test.XXXXXX)"
+temporary_root="$(mktemp -d /private/tmp/repochord-task-packet-test.XXXXXX)"
 
 cleanup() {
   rm -rf -- "$temporary_root"
@@ -105,7 +105,7 @@ No authorization or protected data is involved.
 
 ## Commit
 
-RepoMux creates the commit only after all acceptance criteria and required verification pass.
+RepoChord creates the commit only after all acceptance criteria and required verification pass.
 
 Commit message: `feat(@SCOPE@): expose enabled state`
 
@@ -141,7 +141,7 @@ XDG_CONFIG_HOME="$test_home/.config" \
 
 HOME="$test_home" \
 XDG_CONFIG_HOME="$test_home/.config" \
-"$command_bin/repomux" init \
+"$command_bin/rchord" init \
   --project task-packet-test \
   --coordinate "$coordinate_repository" \
   --create-coordinate \
@@ -149,8 +149,8 @@ XDG_CONFIG_HOME="$test_home/.config" \
   --repository "web=$web_repository" \
   >/dev/null
 
-scaffolder="$coordinate_repository/.agents/skills/repomux/scripts/scaffold-feature.sh"
-validator="$coordinate_repository/.agents/skills/repomux/scripts/validate-task-packet.sh"
+scaffolder="$coordinate_repository/.agents/skills/repochord/scripts/scaffold-feature.sh"
+validator="$coordinate_repository/.agents/skills/repochord/scripts/validate-task-packet.sh"
 
 "$scaffolder" FEATURE-1 api web >/dev/null
 

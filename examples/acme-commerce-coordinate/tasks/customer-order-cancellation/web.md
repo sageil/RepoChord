@@ -47,7 +47,7 @@ The storefront must show a clear customer-facing error for a non-success respons
 
 ## Commit
 
-RepoMux creates the commit only after all acceptance criteria and required tests pass.
+RepoChord creates the commit only after all acceptance criteria and required tests pass.
 
 Commit message: `feat(web): add order cancellation requests`
 

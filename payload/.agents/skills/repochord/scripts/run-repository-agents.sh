@@ -2,6 +2,16 @@
 
 set -euo pipefail
 
+export GIT_OPTIONAL_LOCKS=0
+
+script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+
+if [[ -n "${REPOCHORD_BROKER_DIRECTORY:-}" && "${REPOCHORD_BROKER_EXECUTION:-false}" != true ]]; then
+  exec bash "$script_directory/request-repository-agent-run.sh" \
+    "$REPOCHORD_BROKER_DIRECTORY" \
+    "$@"
+fi
+
 usage() {
   echo "Usage: run-repository-agents.sh [--model <model>] [--reasoning-effort <effort>] [--profile <profile>] [--max-parallel <count>] [--max-attempts <count>] [--allow-dirty-source] [--resume <run-id>] [--retry-blocked <repository-key>]... [<run-id>] <assignments-file>" >&2
 }
@@ -15,7 +25,7 @@ max_parallel=""
 max_parallel_explicit=false
 max_attempts=""
 max_attempts_explicit=false
-allow_dirty_source="${REPOMUX_ALLOW_DIRTY_SOURCE:-false}"
+allow_dirty_source="${REPOCHORD_ALLOW_DIRTY_SOURCE:-false}"
 resume=false
 run_id=""
 retry_blocked_keys=()
@@ -143,12 +153,12 @@ case "$allow_dirty_source" in
   true|false)
     ;;
   *)
-    echo "REPOMUX_ALLOW_DIRTY_SOURCE must be true or false: $allow_dirty_source" >&2
+    echo "REPOCHORD_ALLOW_DIRTY_SOURCE must be true or false: $allow_dirty_source" >&2
     exit 2
     ;;
 esac
 
-for required_command in codex git jq; do
+for required_command in codex cp git jq mktemp mv sed; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     echo "Required command is not installed: $required_command" >&2
     exit 2
@@ -160,36 +170,45 @@ if [[ ! -f "$assignments_file" ]]; then
   exit 2
 fi
 
-script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 skill_directory="$(cd -- "$script_directory/.." && pwd -P)"
 coordinate_root="$(git -C "$skill_directory" rev-parse --show-toplevel)"
 repository_agent_script="$script_directory/run-repository-agent.sh"
 report_script="$script_directory/report-run.sh"
-registry_path="$coordinate_root/.repomux/repositories.json"
-results_root="$coordinate_root/.repomux/results"
+task_progress_script="$script_directory/task-progress.sh"
+registry_path="${REPOCHORD_REGISTRY_PATH:-$coordinate_root/.repochord/repositories.json}"
+results_root="$coordinate_root/.repochord/results"
 result_directory=""
 run_id_reservation=""
 run_manifest_stage=""
 
-if [[ -n "${REPOMUX_CONFIG_HOME:-}" ]]; then
-  repomux_config_directory="$REPOMUX_CONFIG_HOME"
+if [[ -n "${REPOCHORD_CONFIG_HOME:-}" ]]; then
+  repochord_config_directory="$REPOCHORD_CONFIG_HOME"
 elif [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
-  repomux_config_directory="$XDG_CONFIG_HOME/repomux"
+  repochord_config_directory="$XDG_CONFIG_HOME/repochord"
 elif [[ -n "${HOME:-}" ]]; then
-  repomux_config_directory="$HOME/.config/repomux"
+  repochord_config_directory="$HOME/.config/repochord"
 else
-  repomux_config_directory=""
+  repochord_config_directory=""
 fi
 
 projects_registry=""
 
-if [[ -n "$repomux_config_directory" ]]; then
-  projects_registry="$repomux_config_directory/projects.json"
+if [[ ! -f "$task_progress_script" ]]; then
+  echo "Task progress helper does not exist: $task_progress_script" >&2
+  exit 2
+fi
+
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=task-progress.sh
+source "$task_progress_script"
+
+if [[ -n "$repochord_config_directory" ]]; then
+  projects_registry="$repochord_config_directory/projects.json"
 fi
 
 if [[ "$reasoning_effort_explicit" != true ]]; then
-  if [[ -n "${REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT:-}" ]]; then
-    reasoning_effort="$REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT"
+  if [[ -n "${REPOCHORD_REPOSITORY_AGENT_REASONING_EFFORT:-}" ]]; then
+    reasoning_effort="$REPOCHORD_REPOSITORY_AGENT_REASONING_EFFORT"
   else
     reasoning_effort="high"
 
@@ -216,8 +235,8 @@ case "$reasoning_effort" in
 esac
 
 if [[ "$model_explicit" != true ]]; then
-  if [[ -n "${REPOMUX_MODEL:-}" ]]; then
-    model="$REPOMUX_MODEL"
+  if [[ -n "${REPOCHORD_MODEL:-}" ]]; then
+    model="$REPOCHORD_MODEL"
   else
     model="gpt-5.6-terra"
 
@@ -240,8 +259,8 @@ if [[ -z "$model" || "$model" =~ [[:space:]] ]]; then
 fi
 
 if [[ "$max_parallel_explicit" != true ]]; then
-  if [[ -n "${REPOMUX_MAX_PARALLEL:-}" ]]; then
-    max_parallel="$REPOMUX_MAX_PARALLEL"
+  if [[ -n "${REPOCHORD_MAX_PARALLEL:-}" ]]; then
+    max_parallel="$REPOCHORD_MAX_PARALLEL"
   else
     max_parallel="2"
 
@@ -264,8 +283,8 @@ if [[ ! "$max_parallel" =~ ^[1-9][0-9]*$ || "${#max_parallel}" -gt 9 ]]; then
 fi
 
 if [[ "$max_attempts_explicit" != true ]]; then
-  if [[ -n "${REPOMUX_MAX_ATTEMPTS:-}" ]]; then
-    max_attempts="$REPOMUX_MAX_ATTEMPTS"
+  if [[ -n "${REPOCHORD_MAX_ATTEMPTS:-}" ]]; then
+    max_attempts="$REPOCHORD_MAX_ATTEMPTS"
   else
     max_attempts="3"
 
@@ -384,7 +403,7 @@ do
   fi
 
   if [[ ! "$repository_key" =~ ^[A-Za-z0-9._-]+$ ]] ||
-    ! git check-ref-format "refs/heads/repomux/validation/$repository_key" >/dev/null 2>&1
+    ! git check-ref-format "refs/heads/repochord/validation/$repository_key" >/dev/null 2>&1
   then
     echo "Invalid repository key at line $line_number: $repository_key" >&2
     exit 2
@@ -604,10 +623,10 @@ if [[ -z "$run_id" ]]; then
 fi
 
 for repository_key in "${repository_keys[@]}"; do
-  worktree_branch="repomux/$run_id/$repository_key"
+  worktree_branch="repochord/$run_id/$repository_key"
 
   if ! git check-ref-format "refs/heads/$worktree_branch" >/dev/null 2>&1; then
-    echo "Run ID and repository key produce an invalid RepoMux branch: $worktree_branch" >&2
+    echo "Run ID and repository key produce an invalid RepoChord branch: $worktree_branch" >&2
     exit 2
   fi
 done
@@ -710,6 +729,22 @@ else
   run_manifest_stage=""
 fi
 
+task_snapshot_files=()
+
+for ((index = 0; index < repository_agent_count; index++)); do
+  if ! task_snapshot_file="$(repochord_ensure_task_snapshot \
+    "$coordinate_root" \
+    "$result_directory" \
+    "${repository_keys[$index]}" \
+    "${task_files[$index]}" \
+    "${task_hashes[$index]}")"
+  then
+    exit 1
+  fi
+
+  task_snapshot_files+=("$task_snapshot_file")
+done
+
 repository_agent_arguments=(
   --model "$model"
   --reasoning-effort "$reasoning_effort"
@@ -730,25 +765,42 @@ validate_completed_result() {
   local repository_key="${repository_keys[$index]}"
   local repository_path="${repository_paths[$index]}"
   local result_path="$result_directory/$repository_key.json"
-  local expected_worktree_path="$coordinate_root/.repomux/worktrees/$run_id/$repository_key"
-  local expected_worktree_branch="repomux/$run_id/$repository_key"
+  local expected_private_repository_path="$coordinate_root/.repochord/repositories/$run_id/$repository_key.git"
+  local expected_worktree_path="$coordinate_root/.repochord/worktrees/$run_id/$repository_key"
+  local expected_worktree_branch="repochord/$run_id/$repository_key"
   local recorded_commit
+  local recorded_base_commit
   local recorded_branch_commit
+  local recorded_private_repository_path
   local recorded_worktree_path
 
   if ! jq -e \
     --arg run_id "$run_id" \
     --arg repository "$repository_key" \
     --arg source_repository_path "$repository_path" \
+    --arg private_repository_path "$expected_private_repository_path" \
     --arg worktree_path "$expected_worktree_path" \
     --arg worktree_branch "$expected_worktree_branch" \
     '
       .run_id == $run_id and
       .repository == $repository and
       .status == "completed" and
+      (.summary | type == "string") and
       (.commit | type == "string") and
       (.commit | length > 0) and
+      (.tests | type == "array") and
+      (.tests | length > 0) and
+      all(.tests[];
+        type == "object" and
+        (.command | type == "string") and
+        .status == "passed" and
+        (.summary | type == "string")
+      ) and
+      (.risks | type == "array") and
+      all(.risks[]; type == "string") and
+      .blockers == [] and
       .execution.source_repository_path == $source_repository_path and
+      .execution.private_repository_path == $private_repository_path and
       (.execution.base_branch | type == "string") and
       (.execution.base_commit | type == "string") and
       .execution.worktree_path == $worktree_path and
@@ -766,15 +818,37 @@ validate_completed_result() {
   fi
 
   recorded_commit="$(jq -r '.commit' "$result_path")"
+  recorded_private_repository_path="$(jq -r '.execution.private_repository_path' "$result_path")"
   recorded_worktree_path="$(jq -r '.execution.worktree_path' "$result_path")"
 
-  if ! recorded_branch_commit="$(git -C "$repository_path" rev-parse --verify "refs/heads/$expected_worktree_branch" 2>/dev/null)"; then
-    echo "Completed RepoMux branch does not exist: $expected_worktree_branch" >&2
+  if [[ "$recorded_private_repository_path" != "$expected_private_repository_path" || \
+    -L "$recorded_private_repository_path" || \
+    ! -d "$recorded_private_repository_path" || \
+    "$(git --git-dir="$recorded_private_repository_path" rev-parse --is-bare-repository 2>/dev/null || true)" != true ]]
+  then
+    echo "Completed private repository is unavailable or invalid: $expected_private_repository_path" >&2
+    return 1
+  fi
+
+  if ! recorded_branch_commit="$(git --git-dir="$recorded_private_repository_path" rev-parse --verify "refs/heads/$expected_worktree_branch" 2>/dev/null)"; then
+    echo "Completed RepoChord branch does not exist: $expected_worktree_branch" >&2
     return 1
   fi
 
   if [[ "$recorded_branch_commit" != "$recorded_commit" ]]; then
-    echo "Completed RepoMux branch no longer points to its recorded commit: $expected_worktree_branch" >&2
+    echo "Completed RepoChord branch no longer points to its recorded commit: $expected_worktree_branch" >&2
+    return 1
+  fi
+
+  recorded_base_commit="$(jq -r '.execution.base_commit' "$result_path")"
+
+  if ! git --git-dir="$recorded_private_repository_path" merge-base --is-ancestor "$recorded_base_commit" "$recorded_commit"; then
+    echo "Completed repository commit does not contain its recorded base: $repository_key" >&2
+    return 1
+  fi
+
+  if [[ -n "$(git --git-dir="$recorded_private_repository_path" rev-list --merges "$recorded_base_commit..$recorded_commit")" ]]; then
+    echo "Completed repository branch contains a merge commit: $expected_worktree_branch" >&2
     return 1
   fi
 
@@ -784,9 +858,14 @@ validate_completed_result() {
       "$(git -C "$recorded_worktree_path" rev-parse --verify HEAD 2>/dev/null || true)" != "$recorded_commit" || \
       -n "$(git -C "$recorded_worktree_path" status --porcelain 2>/dev/null || true)" ]]
     then
-      echo "Completed RepoMux worktree no longer matches its result: $recorded_worktree_path" >&2
+      echo "Completed RepoChord worktree no longer matches its result: $recorded_worktree_path" >&2
       return 1
     fi
+  fi
+
+  if git -C "$repository_path" show-ref --verify --quiet "refs/heads/$expected_worktree_branch"; then
+    echo "Completed RepoChord branch was written into the source repository: $expected_worktree_branch" >&2
+    return 1
   fi
 }
 
@@ -879,7 +958,7 @@ while [[ "$next_index" -lt "$launch_count" ]]; do
       "$repository_key" \
       "${repository_paths[$index]}" \
       "$run_id" \
-      "${task_files[$index]}" \
+      "${task_snapshot_files[$index]}" \
       > /dev/null \
       2> "$launcher_log" &
 

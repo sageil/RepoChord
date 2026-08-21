@@ -1,4 +1,4 @@
-# RepoMux repository task template
+# RepoChord repository task template
 
 Use this template for `tasks/<feature-id>/<repository-key>.md`.
 Replace every placeholder.
@@ -81,7 +81,7 @@ Use `None` when no documentation is affected.
 
 ## Commit
 
-RepoMux creates the commit only after all acceptance criteria and required verification pass.
+RepoChord creates the commit only after all acceptance criteria and required verification pass.
 
 Commit message: `<type>(<optional-scope>): <description>`
 

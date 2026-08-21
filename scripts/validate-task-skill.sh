@@ -26,7 +26,7 @@ for relative_path in "${required_files[@]}"; do
   fi
 done
 
-if ! grep -q '^name: create-repomux-task$' "$skill_directory/SKILL.md"; then
+if ! grep -q '^name: create-repochord-task$' "$skill_directory/SKILL.md"; then
   echo "Task-authoring SKILL.md has the wrong skill name." >&2
   exit 1
 fi

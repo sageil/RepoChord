@@ -1,0 +1,4 @@
+interface:
+  display_name: "RepoChord"
+  short_description: "Coordinate repository agents across projects"
+  default_prompt: "Use $repochord to coordinate this feature across the listed repositories with isolated repository agents."

@@ -4,7 +4,7 @@ set -euo pipefail
 
 test_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repository_directory="$(cd -- "$test_directory/.." && pwd -P)"
-temporary_root="$(mktemp -d /private/tmp/repomux-uninstaller-test.XXXXXX)"
+temporary_root="$(mktemp -d /private/tmp/repochord-uninstaller-test.XXXXXX)"
 
 cleanup() {
   rm -rf -- "$temporary_root"
@@ -28,19 +28,19 @@ product_commit="$(git -C "$product_repository" rev-parse HEAD)"
 mkdir -p "$test_home"
 export HOME="$test_home"
 export XDG_CONFIG_HOME="$test_home/.config"
-unset XDG_BIN_HOME XDG_DATA_HOME REPOMUX_CONFIG_HOME REPOMUX_DATA_HOME
+unset XDG_BIN_HOME XDG_DATA_HOME REPOCHORD_CONFIG_HOME REPOCHORD_DATA_HOME
 
 HOME="$test_home" \
 "$repository_directory/install.sh" \
   --bin-dir "$command_bin" \
   >/dev/null
 
-repomux_command="$command_bin/repomux"
-installed_data="$test_home/.local/share/repomux"
-projects_registry="$test_home/.config/repomux/projects.json"
+rchord_command="$command_bin/rchord"
+installed_data="$test_home/.local/share/repochord"
+projects_registry="$test_home/.config/repochord/projects.json"
 
 HOME="$test_home" \
-"$repomux_command" init \
+"$rchord_command" init \
   --project uninstall-test \
   --coordinate "$coordinate_repository" \
   --create-coordinate \
@@ -55,14 +55,14 @@ uninstall_output="$(
     --bin-dir "$command_bin"
 )"
 
-test ! -e "$repomux_command"
+test ! -e "$rchord_command"
 test ! -e "$installed_data/skill"
 test ! -e "$installed_data/task-skill"
 test ! -e "$installed_data"
 test -f "$projects_registry"
 test "$(jq -c . "$projects_registry")" = "$registry_before_uninstall"
-test -d "$coordinate_repository/.agents/skills/repomux"
-test -d "$coordinate_repository/.agents/skills/create-repomux-task"
+test -d "$coordinate_repository/.agents/skills/repochord"
+test -d "$coordinate_repository/.agents/skills/create-repochord-task"
 test "$(git -C "$product_repository" rev-parse HEAD)" = "$product_commit"
 
 if [[ "$uninstall_output" != *"Configuration preserved: $projects_registry"* ]]; then
@@ -82,7 +82,7 @@ HOME="$test_home" \
   --bin-dir "$command_bin" \
   >/dev/null
 
-printf '\nlocal command change\n' >> "$repomux_command"
+printf '\nlocal command change\n' >> "$rchord_command"
 printf '\nlocal skill change\n' >> "$installed_data/skill/SKILL.md"
 
 HOME="$test_home" \
@@ -90,7 +90,7 @@ HOME="$test_home" \
   --bin-dir "$command_bin" \
   >/dev/null
 
-test ! -e "$repomux_command"
+test ! -e "$rchord_command"
 test ! -e "$installed_data/skill"
 test ! -e "$installed_data/task-skill"
 test -f "$projects_registry"
@@ -100,22 +100,22 @@ HOME="$test_home" \
   --bin-dir "$command_bin" \
   >/dev/null
 
-rm -f -- "$repomux_command"
-ln -s "$repository_directory/payload/repomux" "$repomux_command"
+rm -f -- "$rchord_command"
+ln -s "$repository_directory/payload/rchord" "$rchord_command"
 rm -rf -- "$installed_data/skill"
-ln -s "$repository_directory/payload/.agents/skills/repomux" "$installed_data/skill"
+ln -s "$repository_directory/payload/.agents/skills/repochord" "$installed_data/skill"
 
 HOME="$test_home" \
 "$repository_directory/uninstall.sh" \
   --bin-dir "$command_bin" \
   >/dev/null
 
-test ! -e "$repomux_command"
-test ! -L "$repomux_command"
+test ! -e "$rchord_command"
+test ! -L "$rchord_command"
 test ! -e "$installed_data/skill"
 test ! -L "$installed_data/skill"
-test -f "$repository_directory/payload/repomux"
-test -d "$repository_directory/payload/.agents/skills/repomux"
+test -f "$repository_directory/payload/rchord"
+test -d "$repository_directory/payload/.agents/skills/repochord"
 test -f "$projects_registry"
 
 HOME="$test_home" \
@@ -123,7 +123,7 @@ HOME="$test_home" \
   --bin-dir "$command_bin" \
   >/dev/null
 
-printf '{"not":"a RepoMux registry"}\n' > "$projects_registry"
+printf '{"not":"a RepoChord registry"}\n' > "$projects_registry"
 
 purge_output="$(
   HOME="$test_home" \
@@ -132,10 +132,10 @@ purge_output="$(
     --purge-config
 )"
 
-test ! -e "$repomux_command"
+test ! -e "$rchord_command"
 test ! -e "$installed_data"
 test ! -e "$projects_registry"
-test ! -e "$test_home/.config/repomux"
+test ! -e "$test_home/.config/repochord"
 test -d "$coordinate_repository"
 test -d "$product_repository"
 
@@ -165,8 +165,8 @@ XDG_CONFIG_HOME="$xdg_config" \
   --purge-config \
   >/dev/null
 
-test ! -e "$xdg_bin/repomux"
-test ! -e "$xdg_data/repomux"
-test ! -e "$xdg_config/repomux"
+test ! -e "$xdg_bin/rchord"
+test ! -e "$xdg_data/repochord"
+test ! -e "$xdg_config/repochord"
 
 echo "Uninstaller tests passed."

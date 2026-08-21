@@ -22,7 +22,7 @@ done
 IFS="$saved_ifs"
 
 if [[ -z "$filtered_path" ]]; then
-  echo "RepoMux cannot locate the real Git command." >&2
+  echo "RepoChord cannot locate the real Git command." >&2
   exit 126
 fi
 
@@ -31,7 +31,7 @@ export PATH
 real_git="$(command -v git || true)"
 
 if [[ -z "$real_git" ]]; then
-  echo "RepoMux cannot locate the real Git command." >&2
+  echo "RepoChord cannot locate the real Git command." >&2
   exit 126
 fi
 
@@ -77,12 +77,12 @@ case "$subcommand" in
   blame|cat-file|check-attr|check-ignore|check-ref-format|describe|diff|diff-files|diff-index|diff-tree|for-each-ref|grep|log|ls-files|ls-tree|merge-base|name-rev|rev-list|rev-parse|show|show-ref|status|version)
     ;;
   "")
-    echo "RepoMux repository agents must specify a read-only Git command." >&2
+    echo "RepoChord repository agents must specify a read-only Git command." >&2
     exit 126
     ;;
   *)
-    echo "RepoMux repository agents cannot run the Git '$subcommand' command." >&2
-    echo "RepoMux creates the local commit after it validates the repository-agent result." >&2
+    echo "RepoChord repository agents cannot run the Git '$subcommand' command." >&2
+    echo "RepoChord creates the local commit after it validates the repository-agent result." >&2
     exit 126
     ;;
 esac

@@ -4,7 +4,7 @@ set -euo pipefail
 
 test_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repository_directory="$(cd -- "$test_directory/.." && pwd -P)"
-temporary_root="$(mktemp -d /private/tmp/repomux-report-test.XXXXXX)"
+temporary_root="$(mktemp -d /private/tmp/repochord-report-test.XXXXXX)"
 
 cleanup() {
   rm -rf -- "$temporary_root"
@@ -32,7 +32,7 @@ run_report_expect_status() {
 
   set +e
   HOME="$test_home" \
-  "$repomux_command" report \
+  "$rchord_command" report \
     --project report-test \
     --run "$run_id" \
     >"$output_path" \
@@ -82,17 +82,17 @@ mkdir -p "$test_home" "$fake_bin"
 
 export HOME="$test_home"
 export XDG_CONFIG_HOME="$test_home/.config"
-unset XDG_BIN_HOME XDG_DATA_HOME REPOMUX_CONFIG_HOME REPOMUX_DATA_HOME
+unset XDG_BIN_HOME XDG_DATA_HOME REPOCHORD_CONFIG_HOME REPOCHORD_DATA_HOME
 
 HOME="$test_home" \
 "$repository_directory/install.sh" \
   --bin-dir "$command_bin" \
   >/dev/null
 
-repomux_command="$command_bin/repomux"
+rchord_command="$command_bin/rchord"
 
 HOME="$test_home" \
-"$repomux_command" init \
+"$rchord_command" init \
   --project report-test \
   --coordinate "$coordinate_repository" \
   --create-coordinate \
@@ -105,8 +105,8 @@ chmod +x "$fake_bin/codex"
 export FAKE_ABSOLUTE_GIT
 FAKE_ABSOLUTE_GIT="$(command -v git)"
 
-scaffolder="$coordinate_repository/.agents/skills/repomux/scripts/scaffold-feature.sh"
-runner="$coordinate_repository/.agents/skills/repomux/scripts/run-repository-agents.sh"
+scaffolder="$coordinate_repository/.agents/skills/repochord/scripts/scaffold-feature.sh"
+runner="$coordinate_repository/.agents/skills/repochord/scripts/run-repository-agents.sh"
 packet_fixture="$test_directory/fixtures/complete-scaffolded-packet.sh"
 assignments_file="$coordinate_repository/tasks/REPORT-123/assignments.txt"
 
@@ -124,32 +124,36 @@ runner_output="$(
 
 report_output="$temporary_root/report.txt"
 run_report_expect_status 0 "$report_output"
-complete_report="$coordinate_repository/.repomux/results/$run_id/report.md"
-api_result="$coordinate_repository/.repomux/results/$run_id/api.json"
+complete_report="$coordinate_repository/.repochord/results/$run_id/report.md"
+api_result="$coordinate_repository/.repochord/results/$run_id/api.json"
+api_source_task="$coordinate_repository/.repochord/results/$run_id/tasks/api.source.md"
+api_completed_task="$coordinate_repository/.repochord/results/$run_id/tasks/api.completed.md"
+web_completed_task="$coordinate_repository/.repochord/results/$run_id/tasks/web.completed.md"
 api_base_commit="$(git -C "$api_repository" rev-parse HEAD)"
 api_final_commit="$(jq -r '.commit' "$api_result")"
-api_worktree="$coordinate_repository/.repomux/worktrees/$run_id/api"
+api_private_repository="$(jq -r '.execution.private_repository_path' "$api_result")"
+api_worktree="$coordinate_repository/.repochord/worktrees/$run_id/api"
 
-runner_report="RepoMux run: completed${runner_output#*RepoMux run: completed}"
+runner_report="RepoChord run: completed${runner_output#*RepoChord run: completed}"
 
 if [[ "$runner_report" != "$(cat "$report_output")" ]]; then
   echo "Runner output did not contain the deterministic receipt." >&2
   exit 1
 fi
 
-grep -Fqx "RepoMux run: completed" "$report_output"
+grep -Fqx "RepoChord run: completed" "$report_output"
 grep -Fqx "Pushed: no | Incomplete: none" "$report_output"
 grep -Eq '^api: completed \| commit [0-9a-f]+ \| integration pending \| blockers none$' "$report_output"
 grep -Eq '^web: completed \| commit [0-9a-f]+ \| integration pending \| blockers none$' "$report_output"
 grep -Fqx "  Tokens: input 100 | cached input 40 | output 20 | reasoning output 5" "$report_output"
 grep -Fqx "Complete report: $complete_report" "$report_output"
-grep -Fqx "Next: repomux integrate --run $run_id --dry-run" "$report_output"
-grep -Fqx "Then: repomux integrate --run $run_id" "$report_output"
+grep -Fqx "Next: rchord integrate --run $run_id --dry-run" "$report_output"
+grep -Fqx "Then: rchord integrate --run $run_id" "$report_output"
 
 grep -Fqx 'Run: `REPORT-123-run-abc123`' "$complete_report"
 grep -Fqx 'Overall status: `completed`' "$complete_report"
 grep -Fqx "Incomplete repositories: none" "$complete_report"
-grep -Fqx "Pushed by RepoMux: no" "$complete_report"
+grep -Fqx "Pushed by RepoChord: no" "$complete_report"
 grep -Fqx "Repository: api" "$complete_report"
 grep -Fqx "Repository: web" "$complete_report"
 grep -Fqx '  Status: `completed`' "$complete_report"
@@ -167,16 +171,35 @@ grep -Fqx '    Output: `20`' "$complete_report"
 grep -Fqx '    Reasoning output: `5`' "$complete_report"
 grep -Fqx "  Retry safe: no" "$complete_report"
 grep -Fqx "  Source repository: $api_repository" "$complete_report"
+grep -Fqx "  Private repository: \`$api_private_repository\`" "$complete_report"
 grep -Fqx "  Base commit: \`$api_base_commit\`" "$complete_report"
 grep -Fqx "  Final commit: \`$api_final_commit\`" "$complete_report"
 grep -Fqx "  Worktree: \`$api_worktree\`" "$complete_report"
-grep -Fqx "  Worktree branch: \`repomux/$run_id/api\`" "$complete_report"
+grep -Fqx "  Worktree branch: \`repochord/$run_id/api\`" "$complete_report"
+grep -Fqx "  Completed task: \`$api_completed_task\`" "$complete_report"
+grep -Fqx "  Completed task: \`$web_completed_task\`" "$complete_report"
+grep -Fqx "  Completed task hash: \`$(git -C "$coordinate_repository" hash-object -- "$api_completed_task")\`" "$complete_report"
+grep -Fqx "  Completed task hash: \`$(git -C "$coordinate_repository" hash-object -- "$web_completed_task")\`" "$complete_report"
 grep -Fqx '  Worktree present: `yes`' "$complete_report"
 assert_repository_report_line api '  Integration: `pending`' "$complete_report"
 assert_repository_report_line web '  Integration: `pending`' "$complete_report"
-grep -Fqx "  \`repomux integrate --run $run_id --dry-run\`" "$complete_report"
-grep -Fqx "  \`repomux integrate --run $run_id\`" "$complete_report"
+grep -Fqx "  \`rchord integrate --run $run_id --dry-run\`" "$complete_report"
+grep -Fqx "  \`rchord integrate --run $run_id\`" "$complete_report"
 
+cmp "$coordinate_repository/tasks/REPORT-123/api.md" "$api_source_task"
+grep -Fqx -- '- [ ] The repository task is complete.' "$api_source_task"
+grep -Fqx -- '- [x] The repository task is complete.' "$api_completed_task"
+printf 'damaged completed task view\n' > "$api_completed_task"
+run_report_expect_status 0 "$report_output"
+grep -Fqx -- '- [x] The repository task is complete.' "$api_completed_task"
+grep -Fqx "  Completed task hash: \`$(git -C "$coordinate_repository" hash-object -- "$api_completed_task")\`" "$complete_report"
+
+git -C "$api_repository" fetch \
+  --quiet \
+  --no-tags \
+  --no-write-fetch-head \
+  "$api_private_repository" \
+  "refs/heads/repochord/$run_id/api"
 git -C "$api_repository" merge --ff-only "$api_final_commit" >/dev/null
 run_report_expect_status 0 "$report_output"
 grep -Fqx "Pushed: no | Incomplete: none" "$report_output"
@@ -193,7 +216,7 @@ grep -Eq '^api: completed \| commit [0-9a-f]+ \| integration diverged \| blocker
 assert_repository_report_line api '  Integration: `diverged`' "$complete_report"
 git -C "$api_repository" update-ref refs/heads/main "$api_final_commit"
 
-api_result="$coordinate_repository/.repomux/results/$run_id/api.json"
+api_result="$coordinate_repository/.repochord/results/$run_id/api.json"
 api_result_backup="$temporary_root/api-result.json"
 cp "$api_result" "$api_result_backup"
 
@@ -215,7 +238,7 @@ jq '
   .execution.retry_safe = true
 ' "$api_result_backup" > "$api_result"
 run_report_expect_status 1 "$report_output"
-grep -Fqx "RepoMux run: incomplete" "$report_output"
+grep -Fqx "RepoChord run: incomplete" "$report_output"
 grep -Fqx "Pushed: no | Incomplete: api" "$report_output"
 grep -Eq '^api: failed \| commit unavailable \| integration unavailable \| blockers none$' "$report_output"
 grep -Fqx 'Overall status: `incomplete`' "$complete_report"
@@ -244,13 +267,13 @@ grep -A1 -F "Repository: api" "$complete_report" | grep -Fqx '  Status: `missing
 grep -Fqx "  Result: missing" "$complete_report"
 mv "$temporary_root/missing-api-result.json" "$api_result"
 
-printf '{}\n' > "$coordinate_repository/.repomux/results/$run_id/unexpected.json"
+printf '{}\n' > "$coordinate_repository/.repochord/results/$run_id/unexpected.json"
 run_report_expect_status 2 "$report_output"
 grep -Fqx \
-  "Run result has no matching manifest repository: $coordinate_repository/.repomux/results/$run_id/unexpected.json" \
+  "Run result has no matching manifest repository: $coordinate_repository/.repochord/results/$run_id/unexpected.json" \
   "$report_output"
 
-if HOME="$test_home" "$repomux_command" report --project report-test --run '../bad' >/dev/null 2>&1; then
+if HOME="$test_home" "$rchord_command" report --project report-test --run '../bad' >/dev/null 2>&1; then
   echo "Report unexpectedly accepted an invalid run ID." >&2
   exit 1
 fi

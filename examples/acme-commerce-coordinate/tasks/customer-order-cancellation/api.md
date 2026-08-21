@@ -50,7 +50,7 @@ The endpoint is unauthenticated because this application has no authentication m
 
 ## Commit
 
-RepoMux creates the commit only after all acceptance criteria and required tests pass.
+RepoChord creates the commit only after all acceptance criteria and required tests pass.
 
 Commit message: `feat(api): add order cancellation requests`
 

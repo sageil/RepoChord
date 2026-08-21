@@ -1,23 +1,23 @@
 ---
-name: repomux
-description: Coordinate one feature, fix, migration, or release across two or more separate Git repositories with isolated repository agents and one consolidated result. Use when at least two repositories registered with RepoMux will participate in the requested work. Do not use for work contained in one repository.
+name: repochord
+description: Coordinate one feature, fix, migration, or release across two or more separate Git repositories with isolated repository agents and one consolidated result. Use when at least two repositories registered with RepoChord will participate in the requested work. Do not use for work contained in one repository.
 ---
 
-# Coordinate repositories with RepoMux
+# Coordinate repositories with RepoChord
 
 Act as the coordinator from the coordination repository.
 
-RepoMux owns product-repository changes, repository-agent execution, local feature commits, result validation, and report generation.
+RepoChord owns product-repository changes, repository-agent execution, local feature commits, result validation, and report generation.
 
-Use this workflow only when the requested outcome requires execution in at least two repositories registered in `.repomux/repositories.json`.
+Use this workflow only when the requested outcome requires execution in at least two repositories registered in `.repochord/repositories.json`.
 
 ## Exact-output invariant
 
 This invariant takes precedence over all other response-formatting instructions in this skill.
 
-The deterministic RepoMux complete report is authoritative.
+The deterministic RepoChord complete report is authoritative.
 
-Once a successful run produces a `Complete report:` path, RepoMux's coordination work is finished.
+Once a successful run produces a `Complete report:` path, RepoChord's coordination work is finished.
 
 From that point forward, the coordinator acts only as a passthrough for that file.
 
@@ -33,8 +33,8 @@ No other assistant-authored content is permitted in that response.
 
 ## Prepare the proposal
 
-1. Read the feature request and `.repomux/repositories.json`.
-2. Read and apply `../create-repomux-task/SKILL.md` to inspect the participating repositories, create the feature packet, and validate it.
+1. Read the feature request and `.repochord/repositories.json`.
+2. Read and apply `../create-repochord-task/SKILL.md` to inspect the participating repositories, create the feature packet, and validate it.
 3. Do not present the proposal until `scripts/validate-task-packet.sh` passes for the current task packet.
 
 Write every repository commit message as a Conventional Commit using `<type>: <description>` or `<type>(<scope>): <description>`.
@@ -48,7 +48,7 @@ Do not create a second feature ID for work that already has one.
 When no feature ID exists, create the files from a short title:
 
 ```bash
-bash .agents/skills/repomux/scripts/scaffold-feature.sh \
+bash .agents/skills/repochord/scripts/scaffold-feature.sh \
   --title "<short feature title>" \
   <repository-key>...
 ```
@@ -56,7 +56,7 @@ bash .agents/skills/repomux/scripts/scaffold-feature.sh \
 Otherwise, use the existing feature ID:
 
 ```bash
-bash .agents/skills/repomux/scripts/scaffold-feature.sh \
+bash .agents/skills/repochord/scripts/scaffold-feature.sh \
   <feature-id> \
   <repository-key>...
 ```
@@ -69,7 +69,7 @@ Present one concise proposal with the feature ID, each repository outcome, the c
 
 Ask once: `Approve this proposal?`
 
-Approval authorizes RepoMux to create the described worktrees and local feature commits and to start the repository agents.
+Approval authorizes RepoChord to create private repositories and worktrees under `.repochord`, create local feature commits there, and start the repository agents.
 
 Do not ask again unless the proposal changes materially.
 
@@ -90,17 +90,17 @@ The new run starts from the registered source-repository commits and does not in
 After approval, run:
 
 ```bash
-bash .agents/skills/repomux/scripts/run-repository-agents.sh \
+bash .agents/skills/repochord/scripts/run-repository-agents.sh \
   <absolute-assignments-file>
 ```
 
-Run this command with `sandbox_permissions` set to `require_escalated` because it creates local Git worktrees and commits in the registered repositories.
+Run this command in the coordinator workspace sandbox without escalation.
 
-Do not run it in the coordinator sandbox first, and do not request `danger-full-access`.
+The runner reads each registered source repository but writes repositories, worktrees, branches, and commits only under the coordination repository's `.repochord` directory.
 
-Let RepoMux generate the run ID unless the user or an external system requires a specific one.
+Let RepoChord generate the run ID unless the user or an external system requires a specific one.
 
-The runner uses the active RepoMux project and session configuration.
+The runner uses the active RepoChord project and session configuration.
 
 Do not edit product repository files directly or ask repository agents to stage, commit, push, merge, pull, or rebase.
 
@@ -108,7 +108,7 @@ Do not edit product repository files directly or ask repository agents to stage,
 
 The runner normally requires a clean source repository.
 
-`REPOMUX_ALLOW_DIRTY_SOURCE=true` authorizes the runner to use the committed `HEAD` while leaving uncommitted source changes untouched.
+`REPOCHORD_ALLOW_DIRTY_SOURCE=true` authorizes the runner to use the committed `HEAD` while leaving uncommitted source changes untouched.
 
 Otherwise, use `--allow-dirty-source` only after the user approves excluding those uncommitted changes from the repository-agent worktree.
 
@@ -122,15 +122,9 @@ Do not repeat the runner's result, Git-state, worktree, or report checks with se
 
 Read repository-agent logs only when the runner fails and the user requests diagnosis.
 
-Resume an incomplete run with:
+Resume an incomplete run with `rchord resume --run <run-id>`.
 
-```bash
-bash .agents/skills/repomux/scripts/run-repository-agents.sh \
-  --resume <run-id> \
-  <absolute-assignments-file>
-```
-
-Retry a blocked repository only after the user approves the retry, then add `--retry-blocked <repository-key>`.
+Retry a blocked repository only after the user approves the retry, then add `--retry-blocked <repository-key>` to the resume command.
 
 Preserve incomplete repository-agent changes.
 
@@ -154,6 +148,12 @@ If the runner succeeds without a complete-report path or the report cannot be re
 
 Do not integrate, push, or clean up as part of the feature run.
 
-Run `repomux integrate` or `repomux cleanup` only when the user explicitly requests that operation.
+Run `rchord integrate` or `rchord cleanup` only when the user explicitly requests that operation.
 
-Integration never pushes, and cleanup preserves the RepoMux branch and commits.
+Run `rchord integrate --dry-run` without escalation because it performs read-only validation.
+
+Run non-dry-run `rchord integrate` with one narrow `require_escalated` approval because it imports the verified private commits and updates the registered source repositories.
+
+Request that approval only when integration starts, not during the repository-agent run.
+
+Integration never pushes, and cleanup preserves the private RepoChord repository, branch, and commits.

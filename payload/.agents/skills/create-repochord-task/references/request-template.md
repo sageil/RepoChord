@@ -1,4 +1,4 @@
-# RepoMux feature request template
+# RepoChord feature request template
 
 Use this template for `requests/<feature-id>.md`.
 Replace every placeholder.

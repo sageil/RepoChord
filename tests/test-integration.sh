@@ -4,7 +4,7 @@ set -euo pipefail
 
 test_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repository_directory="$(cd -- "$test_directory/.." && pwd -P)"
-temporary_root="$(mktemp -d /private/tmp/repomux-integration-test.XXXXXX)"
+temporary_root="$(mktemp -d /private/tmp/repochord-integration-test.XXXXXX)"
 
 cleanup() {
   rm -rf -- "$temporary_root"
@@ -39,7 +39,7 @@ mkdir -p "$test_home" "$fake_bin"
 
 export HOME="$test_home"
 export XDG_CONFIG_HOME="$test_home/.config"
-unset XDG_BIN_HOME XDG_DATA_HOME REPOMUX_CONFIG_HOME REPOMUX_DATA_HOME
+unset XDG_BIN_HOME XDG_DATA_HOME REPOCHORD_CONFIG_HOME REPOCHORD_DATA_HOME
 
 HOME="$test_home" \
 "$repository_directory/install.sh" \
@@ -47,7 +47,7 @@ HOME="$test_home" \
   >/dev/null
 
 HOME="$test_home" \
-"$command_bin/repomux" init \
+"$command_bin/rchord" init \
   -p integration-test \
   -c "$coordinate_repository" \
   --create-coordinate \
@@ -70,8 +70,8 @@ chmod +x "$fake_bin/codex"
 export FAKE_ABSOLUTE_GIT
 FAKE_ABSOLUTE_GIT="$(command -v git)"
 
-scaffolder="$coordinate_repository/.agents/skills/repomux/scripts/scaffold-feature.sh"
-runner="$coordinate_repository/.agents/skills/repomux/scripts/run-repository-agents.sh"
+scaffolder="$coordinate_repository/.agents/skills/repochord/scripts/scaffold-feature.sh"
+runner="$coordinate_repository/.agents/skills/repochord/scripts/run-repository-agents.sh"
 packet_fixture="$test_directory/fixtures/complete-scaffolded-packet.sh"
 run_id="PROJECT-INTEGRATE-run-001"
 
@@ -86,7 +86,7 @@ FAKE_CODEX_MODE=completed \
   "$coordinate_repository/tasks/PROJECT-INTEGRATE/assignments.txt" \
   >/dev/null
 
-run_manifest="$coordinate_repository/.repomux/results/$run_id/.manifest.json"
+run_manifest="$coordinate_repository/.repochord/results/$run_id/.manifest.json"
 
 jq -e \
   --arg coordinate "$coordinate_repository" \
@@ -113,8 +113,30 @@ jq -e \
 api_base_commit="$(git -C "$api_repository" rev-parse main)"
 web_base_commit="$(git -C "$web_repository" rev-parse master)"
 coordinate_base_commit="$(git -C "$coordinate_repository" rev-parse HEAD)"
-api_final_commit="$(jq -r '.commit' "$coordinate_repository/.repomux/results/$run_id/api.json")"
-web_final_commit="$(jq -r '.commit' "$coordinate_repository/.repomux/results/$run_id/web.json")"
+api_final_commit="$(jq -r '.commit' "$coordinate_repository/.repochord/results/$run_id/api.json")"
+web_final_commit="$(jq -r '.commit' "$coordinate_repository/.repochord/results/$run_id/web.json")"
+api_private_repository="$(jq -r '.execution.private_repository_path' "$coordinate_repository/.repochord/results/$run_id/api.json")"
+web_private_repository="$(jq -r '.execution.private_repository_path' "$coordinate_repository/.repochord/results/$run_id/web.json")"
+
+test "$(git -C "$api_private_repository" rev-parse "refs/heads/repochord/$run_id/api")" = "$api_final_commit"
+test "$(git -C "$web_private_repository" rev-parse "refs/heads/repochord/$run_id/web")" = "$web_final_commit"
+
+for repository_ref in \
+  "$api_repository|refs/heads/repochord/$run_id/api|$api_final_commit" \
+  "$web_repository|refs/heads/repochord/$run_id/web|$web_final_commit"
+do
+  IFS='|' read -r source_repository feature_ref final_commit <<< "$repository_ref"
+
+  if git -C "$source_repository" show-ref --verify --quiet "$feature_ref"; then
+    echo "Repository-agent run wrote a feature branch into a source repository." >&2
+    exit 1
+  fi
+
+  if git -C "$source_repository" cat-file -e "$final_commit^{commit}" 2>/dev/null; then
+    echo "Repository-agent run imported its final commit into a source repository before integration." >&2
+    exit 1
+  fi
+done
 
 git -C "$api_repository" switch -q -c user-work
 integration_hook_marker="$temporary_root/integration-hook-ran"
@@ -131,7 +153,7 @@ done
 printf 'uncommitted product change\n' >> "$web_repository/README.md"
 dirty_checkout_error="$temporary_root/dirty-checkout-error.txt"
 
-if HOME="$test_home" "$command_bin/repomux" integrate \
+if HOME="$test_home" "$command_bin/rchord" integrate \
   --project integration-test \
   --run "$run_id" \
   --dry-run \
@@ -149,7 +171,7 @@ git -C "$web_repository" restore README.md
 
 dry_run_output="$(
   HOME="$test_home" \
-  "$command_bin/repomux" integrate \
+  "$command_bin/rchord" integrate \
     --project integration-test \
     --run "$run_id" \
     --dry-run
@@ -174,7 +196,7 @@ fi
 
 show_diffs_output="$(
   HOME="$test_home" \
-  "$command_bin/repomux" integrate \
+  "$command_bin/rchord" integrate \
     --project integration-test \
     --run "$run_id" \
     --dry-run \
@@ -204,8 +226,8 @@ test "$(git -C "$api_repository" rev-parse main)" = "$api_base_commit"
 test "$(git -C "$web_repository" rev-parse master)" = "$web_base_commit"
 test "$(git -C "$api_repository" symbolic-ref --short HEAD)" = "user-work"
 test "$(git -C "$api_repository" rev-parse HEAD)" = "$api_base_commit"
-test -d "$coordinate_repository/.repomux/worktrees/$run_id/api"
-test -d "$coordinate_repository/.repomux/worktrees/$run_id/web"
+test -d "$coordinate_repository/.repochord/worktrees/$run_id/api"
+test -d "$coordinate_repository/.repochord/worktrees/$run_id/web"
 
 confirmation_fifo="$temporary_root/confirmation.fifo"
 confirmation_output="$temporary_root/confirmation-output.txt"
@@ -215,7 +237,7 @@ mkfifo "$confirmation_fifo"
 exec 9<>"$confirmation_fifo"
 
 HOME="$test_home" \
-"$command_bin/repomux" integrate \
+"$command_bin/rchord" integrate \
   --project integration-test \
   --run "$run_id" \
   <"$confirmation_fifo" \
@@ -259,7 +281,7 @@ git -C "$coordinate_repository" switch -q "$original_coordinate_branch"
 integration_output="$(
   printf 'yes\n' | \
     HOME="$test_home" \
-    "$command_bin/repomux" integrate \
+    "$command_bin/rchord" integrate \
       --project integration-test \
       --run "$run_id"
 )"
@@ -284,9 +306,15 @@ test "$(git -C "$api_repository" symbolic-ref --short HEAD)" = "user-work"
 test "$(git -C "$api_repository" rev-parse HEAD)" = "$api_base_commit"
 test "$(git -C "$web_repository" symbolic-ref --short HEAD)" = "master"
 test "$(git -C "$web_repository" rev-parse HEAD)" = "$web_final_commit"
+if git -C "$api_repository" show-ref --verify --quiet "refs/heads/repochord/$run_id/api" || \
+  git -C "$web_repository" show-ref --verify --quiet "refs/heads/repochord/$run_id/web"
+then
+  echo "Integration created a RepoChord feature branch in a source repository." >&2
+  exit 1
+fi
 test ! -e "$integration_hook_marker"
-test -d "$coordinate_repository/.repomux/worktrees/$run_id/api"
-test -d "$coordinate_repository/.repomux/worktrees/$run_id/web"
+test -d "$coordinate_repository/.repochord/worktrees/$run_id/api"
+test -d "$coordinate_repository/.repochord/worktrees/$run_id/web"
 
 diff -u \
   <(printf '%s\n' \
@@ -302,7 +330,7 @@ integrated_coordinate_commit="$(git -C "$coordinate_repository" rev-parse HEAD)"
 printf 'local work after integration\n' > "$web_repository/local-work.txt"
 integrated_dry_run_output="$(
   HOME="$test_home" \
-  "$command_bin/repomux" integrate \
+  "$command_bin/rchord" integrate \
     --project integration-test \
     --run "$run_id" \
     --dry-run \
@@ -318,7 +346,7 @@ then
 fi
 
 HOME="$test_home" \
-"$command_bin/repomux" integrate \
+"$command_bin/rchord" integrate \
   --project integration-test \
   --run "$run_id" \
   </dev/null \
@@ -347,7 +375,7 @@ cancel_web_base="$(git -C "$web_repository" rev-parse master)"
 
 if printf 'no\n' | \
   HOME="$test_home" \
-  "$command_bin/repomux" integrate \
+  "$command_bin/rchord" integrate \
     --project integration-test \
     --run "$cancel_run_id" \
     >/dev/null 2>&1
@@ -363,7 +391,7 @@ test "$(git -C "$web_repository" rev-parse master)" = "$cancel_web_base"
 printf '\nchanged after run\n' >> "$coordinate_repository/requests/PROJECT-CANCEL.md"
 
 if HOME="$test_home" \
-  "$command_bin/repomux" integrate \
+  "$command_bin/rchord" integrate \
     --project integration-test \
     --run "$cancel_run_id" \
     --dry-run \
@@ -394,7 +422,7 @@ incomplete_api_base="$(git -C "$api_repository" rev-parse user-work)"
 incomplete_web_base="$(git -C "$web_repository" rev-parse master)"
 
 if HOME="$test_home" \
-  "$command_bin/repomux" integrate \
+  "$command_bin/rchord" integrate \
     --project integration-test \
     --run "$incomplete_run_id" \
     --dry-run \
@@ -427,7 +455,7 @@ printf '%s\n' "$collision_file" >> "$api_repository/.git/info/exclude"
 printf 'preserve this ignored local file\n' > "$api_repository/$collision_file"
 
 if HOME="$test_home" \
-  "$command_bin/repomux" integrate \
+  "$command_bin/rchord" integrate \
     --project integration-test \
     --run "$collision_run_id" \
     --dry-run \
@@ -461,7 +489,7 @@ git -C "$api_repository" commit -m "test: create base branch divergence" >/dev/n
 diverged_api_base="$(git -C "$api_repository" rev-parse user-work)"
 
 if HOME="$test_home" \
-  "$command_bin/repomux" integrate \
+  "$command_bin/rchord" integrate \
     --project integration-test \
     --run "$diverged_run_id" \
     --dry-run \
@@ -476,14 +504,14 @@ test "$(git -C "$api_repository" rev-parse user-work)" = "$diverged_api_base"
 test "$(git -C "$web_repository" rev-parse master)" = "$diverged_web_base"
 
 HOME="$test_home" \
-"$command_bin/repomux" cleanup \
+"$command_bin/rchord" cleanup \
   --project integration-test \
   --run "$run_id" \
   >/dev/null
 
-test ! -e "$coordinate_repository/.repomux/worktrees/$run_id/api"
-test ! -e "$coordinate_repository/.repomux/worktrees/$run_id/web"
-test "$(git -C "$api_repository" rev-parse "repomux/$run_id/api")" = "$api_final_commit"
-test "$(git -C "$web_repository" rev-parse "repomux/$run_id/web")" = "$web_final_commit"
+test ! -e "$coordinate_repository/.repochord/worktrees/$run_id/api"
+test ! -e "$coordinate_repository/.repochord/worktrees/$run_id/web"
+test "$(git -C "$api_private_repository" rev-parse "repochord/$run_id/api")" = "$api_final_commit"
+test "$(git -C "$web_private_repository" rev-parse "repochord/$run_id/web")" = "$web_final_commit"
 
 echo "Integration tests passed."

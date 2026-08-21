@@ -1,4 +1,0 @@
-interface:
-  display_name: "RepoMux"
-  short_description: "Coordinate repository agents across projects"
-  default_prompt: "Use $repomux to coordinate this feature across the listed repositories with isolated repository agents."

@@ -62,8 +62,9 @@ find_branch_worktree() {
 
 validate_checkout_collisions() {
   local checkout_path="$1"
-  local current_commit="$2"
-  local final_commit="$3"
+  local artifact_repository_path="$2"
+  local current_commit="$3"
+  local final_commit="$4"
   local changed_path
 
   while IFS= read -r -d '' changed_path; do
@@ -72,7 +73,7 @@ validate_checkout_collisions() {
     then
       fail "An untracked or ignored path would be overwritten during integration: $checkout_path/$changed_path"
     fi
-  done < <(git -C "$checkout_path" diff \
+  done < <(git -C "$artifact_repository_path" diff \
     --no-ext-diff \
     --no-textconv \
     --name-only \
@@ -143,8 +144,8 @@ script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 skill_directory="$(cd -- "$script_directory/.." && pwd -P)"
 coordinate_root="$(git -C "$skill_directory" rev-parse --show-toplevel)"
 coordinate_root="$(cd -- "$coordinate_root" && pwd -P)"
-registry_path="$coordinate_root/.repomux/repositories.json"
-result_directory="$coordinate_root/.repomux/results/$run_id"
+registry_path="$coordinate_root/.repochord/repositories.json"
+result_directory="$coordinate_root/.repochord/results/$run_id"
 run_manifest="$result_directory/.manifest.json"
 
 if [[ -L "$result_directory" || ! -d "$result_directory" ]]; then
@@ -270,7 +271,7 @@ while IFS=$'\t' read -r repository_key repository_path task_file task_hash; do
   validate_safe_text "$task_file" "Task file"
 
   if [[ ! "$repository_key" =~ ^[A-Za-z0-9._-]+$ ]] ||
-    ! git check-ref-format "refs/heads/repomux/validation/$repository_key" >/dev/null 2>&1
+    ! git check-ref-format "refs/heads/repochord/validation/$repository_key" >/dev/null 2>&1
   then
     fail "Run manifest contains an invalid repository key: $repository_key" 2
   fi
@@ -424,6 +425,8 @@ base_branches=()
 base_commits=()
 final_commits=()
 worktree_branches=()
+private_repository_paths=()
+artifact_repository_paths=()
 base_current_commits=()
 base_checkout_paths=()
 integration_states=()
@@ -438,6 +441,9 @@ preflight_integration() {
   local result_path
   local expected_worktree_path
   local expected_worktree_branch
+  local expected_private_repository_path
+  local private_repository_path
+  local artifact_repository_path
   local base_branch
   local base_commit
   local final_commit
@@ -453,6 +459,8 @@ preflight_integration() {
   base_commits=()
   final_commits=()
   worktree_branches=()
+  private_repository_paths=()
+  artifact_repository_paths=()
   base_current_commits=()
   base_checkout_paths=()
   integration_states=()
@@ -486,8 +494,9 @@ preflight_integration() {
     repository_key="${repository_keys[$index]}"
     repository_path="${repository_paths[$index]}"
     result_path="$result_directory/$repository_key.json"
-    expected_worktree_path="$coordinate_root/.repomux/worktrees/$run_id/$repository_key"
-    expected_worktree_branch="repomux/$run_id/$repository_key"
+    expected_private_repository_path="$coordinate_root/.repochord/repositories/$run_id/$repository_key.git"
+    expected_worktree_path="$coordinate_root/.repochord/worktrees/$run_id/$repository_key"
+    expected_worktree_branch="repochord/$run_id/$repository_key"
 
     if [[ -L "$result_path" || ! -f "$result_path" ]]; then
       fail "Repository result does not exist or is not a regular file: $result_path"
@@ -497,6 +506,7 @@ preflight_integration() {
       --arg run_id "$run_id" \
       --arg repository "$repository_key" \
       --arg source_repository_path "$repository_path" \
+      --arg private_repository_path "$expected_private_repository_path" \
       --arg worktree_path "$expected_worktree_path" \
       --arg worktree_branch "$expected_worktree_branch" \
       '
@@ -520,6 +530,8 @@ preflight_integration() {
         .blockers == [] and
         (.execution | type == "object") and
         .execution.source_repository_path == $source_repository_path and
+        ((.execution.private_repository_path // null) == null or
+          .execution.private_repository_path == $private_repository_path) and
         (.execution.base_branch | type == "string") and
         (.execution.base_branch | length > 0) and
         (.execution.base_commit | type == "string") and
@@ -540,6 +552,20 @@ preflight_integration() {
     base_branch="$(jq -r '.execution.base_branch' "$result_path")"
     base_commit="$(jq -r '.execution.base_commit' "$result_path")"
     final_commit="$(jq -r '.commit' "$result_path")"
+    private_repository_path="$(jq -r '.execution.private_repository_path // empty' "$result_path")"
+    artifact_repository_path="$repository_path"
+
+    if [[ -n "$private_repository_path" ]]; then
+      if [[ "$private_repository_path" != "$expected_private_repository_path" || \
+        -L "$private_repository_path" || \
+        ! -d "$private_repository_path" || \
+        "$(git -C "$private_repository_path" rev-parse --is-bare-repository 2>/dev/null || true)" != true ]]
+      then
+        fail "Private repository is unavailable or invalid in $repository_key: $expected_private_repository_path"
+      fi
+
+      artifact_repository_path="$private_repository_path"
+    fi
 
     if ! git check-ref-format "refs/heads/$base_branch" >/dev/null 2>&1; then
       fail "Repository result contains an invalid base branch: $base_branch" 2
@@ -549,30 +575,37 @@ preflight_integration() {
       fail "Recorded base commit does not exist in $repository_key: $base_commit"
     fi
 
-    if ! git -C "$repository_path" cat-file -e "$final_commit^{commit}" 2>/dev/null; then
+    if ! git -C "$artifact_repository_path" cat-file -e "$final_commit^{commit}" 2>/dev/null; then
       fail "Recorded final commit does not exist in $repository_key: $final_commit"
     fi
 
-    if ! branch_commit="$(git -C "$repository_path" rev-parse --verify "refs/heads/$expected_worktree_branch^{commit}" 2>/dev/null)"; then
-      fail "RepoMux branch does not exist in $repository_key: $expected_worktree_branch"
+    if ! branch_commit="$(git -C "$artifact_repository_path" rev-parse --verify "refs/heads/$expected_worktree_branch^{commit}" 2>/dev/null)"; then
+      fail "RepoChord branch does not exist in $repository_key: $expected_worktree_branch"
     fi
 
     if [[ "$branch_commit" != "$final_commit" ]]; then
-      fail "RepoMux branch changed after completion in $repository_key: $expected_worktree_branch"
+      fail "RepoChord branch changed after completion in $repository_key: $expected_worktree_branch"
     fi
 
     if ! current_base_commit="$(git -C "$repository_path" rev-parse --verify "refs/heads/$base_branch^{commit}" 2>/dev/null)"; then
       fail "Recorded base branch does not exist in $repository_key: $base_branch"
     fi
 
-    if ! git -C "$repository_path" merge-base --is-ancestor "$base_commit" "$final_commit"; then
+    if ! git -C "$artifact_repository_path" merge-base --is-ancestor "$base_commit" "$final_commit"; then
       fail "Final commit does not contain the recorded base commit in $repository_key."
     fi
 
-    if git -C "$repository_path" merge-base --is-ancestor "$final_commit" "$current_base_commit"; then
+    if [[ -n "$(git -C "$artifact_repository_path" rev-list --merges "$base_commit..$final_commit")" ]]; then
+      fail "Final commit history contains a merge commit in $repository_key."
+    fi
+
+    if git -C "$repository_path" cat-file -e "$final_commit^{commit}" 2>/dev/null &&
+      git -C "$repository_path" merge-base --is-ancestor "$final_commit" "$current_base_commit"
+    then
       integration_state="integrated"
-    elif git -C "$repository_path" merge-base --is-ancestor "$base_commit" "$current_base_commit" &&
-      git -C "$repository_path" merge-base --is-ancestor "$current_base_commit" "$final_commit"
+    elif git -C "$artifact_repository_path" cat-file -e "$current_base_commit^{commit}" 2>/dev/null &&
+      git -C "$artifact_repository_path" merge-base --is-ancestor "$base_commit" "$current_base_commit" &&
+      git -C "$artifact_repository_path" merge-base --is-ancestor "$current_base_commit" "$final_commit"
     then
       integration_state="pending"
     else
@@ -598,7 +631,7 @@ preflight_integration() {
         fail "Base branch checkout has a Git operation in progress: $base_checkout_path"
       fi
 
-      validate_checkout_collisions "$base_checkout_path" "$current_base_commit" "$final_commit"
+      validate_checkout_collisions "$base_checkout_path" "$artifact_repository_path" "$current_base_commit" "$final_commit"
     fi
 
     if [[ -e "$expected_worktree_path" ]]; then
@@ -609,7 +642,7 @@ preflight_integration() {
         -n "$(git -c core.fsmonitor=false \
           -C "$expected_worktree_path" status --porcelain --untracked-files=all 2>/dev/null || true)" ]]
       then
-        fail "RepoMux worktree no longer matches its completed result: $expected_worktree_path"
+        fail "RepoChord worktree no longer matches its completed result: $expected_worktree_path"
       fi
     fi
 
@@ -619,6 +652,8 @@ preflight_integration() {
     base_commits+=("$base_commit")
     final_commits+=("$final_commit")
     worktree_branches+=("$expected_worktree_branch")
+    private_repository_paths+=("$private_repository_path")
+    artifact_repository_paths+=("$artifact_repository_path")
     base_current_commits+=("$current_base_commit")
     base_checkout_paths+=("$base_checkout_path")
     integration_states+=("$integration_state")
@@ -649,7 +684,7 @@ display_plan() {
     echo "Repository: ${repository_keys[$index]}"
     echo "  Path: ${repository_paths[$index]}"
     echo "  Base: ${base_branches[$index]} ${base_current_commits[$index]}"
-    echo "  RepoMux branch: ${worktree_branches[$index]}"
+    echo "  RepoChord branch: ${worktree_branches[$index]}"
     echo "  Final commit: ${final_commits[$index]}"
     echo "  Integration: ${integration_states[$index]}"
     result_summary="$(jq -c '{summary, tests, risks}' "${result_paths[$index]}")"
@@ -661,14 +696,14 @@ display_plan() {
       pending_base_commit="${base_current_commits[$index]}"
     fi
 
-    git -C "${repository_paths[$index]}" diff --no-ext-diff --no-textconv --stat \
+    git -C "${artifact_repository_paths[$index]}" diff --no-ext-diff --no-textconv --stat \
       "$pending_base_commit..${final_commits[$index]}"
 
     if [[ "$show_diffs" == true ]]; then
       if [[ "${integration_states[$index]}" == "pending" ]]; then
         echo
         echo "  Diff:"
-        git -C "${repository_paths[$index]}" diff \
+        git -C "${artifact_repository_paths[$index]}" diff \
           "${base_current_commits[$index]}..${final_commits[$index]}"
       else
         echo "  Diff: none - already integrated"
@@ -701,7 +736,7 @@ if [[ "$documents_pending" != true && "$pending_repository_count" -eq 0 ]]; then
 fi
 
 echo
-printf 'Commit the feature documents and fast-forward %s repository branch(es)? [y/N] ' "$pending_repository_count"
+printf 'Import verified commits, commit the feature documents, and fast-forward %s repository branch(es)? [y/N] ' "$pending_repository_count"
 confirmation=""
 IFS= read -r confirmation || true
 
@@ -745,7 +780,7 @@ for ((index = 0; index < repository_count; index++)); do
   fi
 done
 
-empty_hooks_directory="$(mktemp -d "${TMPDIR:-/tmp}/repomux-integration-hooks.XXXXXX")"
+empty_hooks_directory="$(mktemp -d "${TMPDIR:-/tmp}/repochord-integration-hooks.XXXXXX")"
 
 if [[ "$documents_pending" == true ]]; then
   if ! git -c core.hooksPath="$empty_hooks_directory" \
@@ -787,6 +822,8 @@ for ((index = 0; index < repository_count; index++)); do
   base_branch="${base_branches[$index]}"
   expected_current_commit="${base_current_commits[$index]}"
   final_commit="${final_commits[$index]}"
+  private_repository_path="${private_repository_paths[$index]}"
+  artifact_repository_path="${artifact_repository_paths[$index]}"
   current_base_commit="$(git -C "$repository_path" rev-parse --verify "refs/heads/$base_branch^{commit}")"
 
   if [[ -L "${result_paths[$index]}" || ! -f "${result_paths[$index]}" ]]; then
@@ -814,8 +851,31 @@ for ((index = 0; index < repository_count; index++)); do
       fail "Integration stopped after $integrated_repository_count repository branch(es). The base checkout became dirty in $repository_key. Re-run the same command after review."
     fi
 
-    validate_checkout_collisions "$base_checkout_path" "$current_base_commit" "$final_commit"
+    validate_checkout_collisions \
+      "$base_checkout_path" \
+      "$artifact_repository_path" \
+      "$current_base_commit" \
+      "$final_commit"
+  fi
 
+  if [[ -n "$private_repository_path" ]]; then
+    if ! git -c core.hooksPath="$empty_hooks_directory" \
+      -C "$repository_path" fetch \
+      --quiet \
+      --no-tags \
+      --no-write-fetch-head \
+      "$private_repository_path" \
+      "refs/heads/${worktree_branches[$index]}"
+    then
+      fail "Integration stopped after $integrated_repository_count repository branch(es). Verified commit import failed in $repository_key. Re-run the same command after review."
+    fi
+  fi
+
+  if ! git -C "$repository_path" cat-file -e "$final_commit^{commit}" 2>/dev/null; then
+    fail "Integration stopped after $integrated_repository_count repository branch(es). Imported commit verification failed in $repository_key."
+  fi
+
+  if [[ -n "$base_checkout_path" ]]; then
     if ! git -c core.hooksPath="$empty_hooks_directory" \
       -C "$base_checkout_path" merge --ff-only "$final_commit"
     then
@@ -830,7 +890,7 @@ for ((index = 0; index < repository_count; index++)); do
   else
     if ! git -c core.hooksPath="$empty_hooks_directory" \
       -C "$repository_path" update-ref \
-      -m "repomux: integrate $run_id" \
+      -m "repochord: integrate $run_id" \
       "refs/heads/$base_branch" \
       "$final_commit" \
       "$expected_current_commit"
@@ -850,4 +910,4 @@ done
 echo
 echo "Integration complete."
 echo "No changes were pushed."
-echo "RepoMux feature worktrees were preserved."
+echo "RepoChord feature worktrees were preserved."

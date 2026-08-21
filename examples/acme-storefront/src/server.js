@@ -33,5 +33,5 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`Remux Web listening on http://localhost:${port}`);
+  console.log(`Acme Storefront listening on http://localhost:${port}`);
 });

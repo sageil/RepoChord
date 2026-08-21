@@ -100,6 +100,12 @@
             "null"
           ]
         },
+        "private_repository_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "base_branch": {
           "type": [
             "string",

@@ -5,17 +5,18 @@ set -euo pipefail
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  repomux init -p <name> [-c <path>] [--create-coordinate] [--model <model>] [--coordinator-reasoning-effort <effort>] [--repository-agent-reasoning-effort <effort>] [--max-parallel <count>] -r <key=path>...
-  repomux [start] [-p <name>] [-r <key>]... [--model <model>] [--coordinator-reasoning-effort <effort>] [--repository-agent-reasoning-effort <effort>] [--max-parallel <count>] [--max-attempts <count>] [--allow-dirty-source] [-- <codex-argument>...]
-  repomux config get [-p <name>] <model|coordinator-reasoning-effort|repository-agent-reasoning-effort|max-parallel|max-attempts>
-  repomux config set [-p <name>] <model|coordinator-reasoning-effort|repository-agent-reasoning-effort|max-parallel|max-attempts> <value>
-  repomux list [--details]
-  repomux upgrade
-  repomux validate [-p <name> | -c <path>]
-  repomux report [-p <name>] --run <run-id>
-  repomux integrate [-p <name>] --run <run-id> [--dry-run] [--show-diffs]
-  repomux cleanup [-p <name>] --run <run-id> [-r <key>]... [--force]
-  repomux completion <bash|zsh>
+  rchord init -p <name> [-c <path>] [--create-coordinate] [--model <model>] [--coordinator-reasoning-effort <effort>] [--repository-agent-reasoning-effort <effort>] [--max-parallel <count>] -r <key=path>...
+  rchord [start] [-p <name>] [-r <key>]... [--model <model>] [--coordinator-reasoning-effort <effort>] [--repository-agent-reasoning-effort <effort>] [--max-parallel <count>] [--max-attempts <count>] [--allow-dirty-source] [-- <codex-argument>...]
+  rchord config get [-p <name>] <model|coordinator-reasoning-effort|repository-agent-reasoning-effort|max-parallel|max-attempts>
+  rchord config set [-p <name>] <model|coordinator-reasoning-effort|repository-agent-reasoning-effort|max-parallel|max-attempts> <value>
+  rchord list [--details]
+  rchord upgrade
+  rchord validate [-p <name> | -c <path>]
+  rchord report [-p <name>] --run <run-id>
+  rchord integrate [-p <name>] --run <run-id> [--dry-run] [--show-diffs]
+  rchord resume [-p <name>] --run <run-id> [--retry-blocked <key>]... [--max-attempts <count>]
+  rchord cleanup [-p <name>] (--run <run-id> | --all) [-r <key>]... [--force]
+  rchord completion <bash|zsh>
 EOF
 }
 
@@ -35,37 +36,37 @@ require_commands() {
 }
 
 initialize_locations() {
-  if [[ -n "${REPOMUX_DATA_HOME:-}" ]]; then
-    repomux_data_directory="$REPOMUX_DATA_HOME"
+  if [[ -n "${REPOCHORD_DATA_HOME:-}" ]]; then
+    repochord_data_directory="$REPOCHORD_DATA_HOME"
   elif [[ -n "${XDG_DATA_HOME:-}" ]]; then
-    repomux_data_directory="$XDG_DATA_HOME/repomux"
+    repochord_data_directory="$XDG_DATA_HOME/repochord"
   elif [[ -n "${HOME:-}" ]]; then
-    repomux_data_directory="$HOME/.local/share/repomux"
+    repochord_data_directory="$HOME/.local/share/repochord"
   else
-    fail "HOME, XDG_DATA_HOME, and REPOMUX_DATA_HOME are unset." 2
+    fail "HOME, XDG_DATA_HOME, and REPOCHORD_DATA_HOME are unset." 2
   fi
 
-  if [[ -n "${REPOMUX_CONFIG_HOME:-}" ]]; then
-    repomux_config_directory="$REPOMUX_CONFIG_HOME"
+  if [[ -n "${REPOCHORD_CONFIG_HOME:-}" ]]; then
+    repochord_config_directory="$REPOCHORD_CONFIG_HOME"
   elif [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
-    repomux_config_directory="$XDG_CONFIG_HOME/repomux"
+    repochord_config_directory="$XDG_CONFIG_HOME/repochord"
   elif [[ -n "${HOME:-}" ]]; then
-    repomux_config_directory="$HOME/.config/repomux"
+    repochord_config_directory="$HOME/.config/repochord"
   else
-    fail "HOME, XDG_CONFIG_HOME, and REPOMUX_CONFIG_HOME are unset." 2
+    fail "HOME, XDG_CONFIG_HOME, and REPOCHORD_CONFIG_HOME are unset." 2
   fi
 
-  if [[ "$repomux_data_directory" != /* ]]; then
-    fail "RepoMux data directory must be absolute: $repomux_data_directory" 2
+  if [[ "$repochord_data_directory" != /* ]]; then
+    fail "RepoChord data directory must be absolute: $repochord_data_directory" 2
   fi
 
-  if [[ "$repomux_config_directory" != /* ]]; then
-    fail "RepoMux configuration directory must be absolute: $repomux_config_directory" 2
+  if [[ "$repochord_config_directory" != /* ]]; then
+    fail "RepoChord configuration directory must be absolute: $repochord_config_directory" 2
   fi
 
-  source_skill="$repomux_data_directory/skill"
-  source_task_skill="$repomux_data_directory/task-skill"
-  projects_registry="$repomux_config_directory/projects.json"
+  source_skill="$repochord_data_directory/skill"
+  source_task_skill="$repochord_data_directory/task-skill"
+  projects_registry="$repochord_config_directory/projects.json"
 }
 
 validate_project_name() {
@@ -127,6 +128,42 @@ validate_max_parallel() {
   fi
 }
 
+validate_forwarded_codex_config() {
+  local config_value="$1"
+
+  if [[ "$config_value" =~ ^[[:space:]]*(sandbox_mode|sandbox_workspace_write)([.=[:space:]]|$) ]]; then
+    fail "RepoChord does not accept legacy Codex sandbox configuration after --: $config_value" 2
+  fi
+}
+
+validate_forwarded_codex_arguments() {
+  local expect_config_value=false
+  local argument
+
+  for argument in "$@"; do
+    if [[ "$expect_config_value" == true ]]; then
+      validate_forwarded_codex_config "$argument"
+      expect_config_value=false
+      continue
+    fi
+
+    case "$argument" in
+      -c|--config)
+        expect_config_value=true
+        ;;
+      --config=*)
+        validate_forwarded_codex_config "${argument#--config=}"
+        ;;
+      -c?*)
+        validate_forwarded_codex_config "${argument#-c}"
+        ;;
+      -C|--cd|--cd=*|--add-dir|--add-dir=*|-s|--sandbox|--sandbox=*|-s?*|--approve-for-me|--dangerously-bypass-approvals-and-sandbox)
+        fail "RepoChord does not accept a Codex argument that can replace its filesystem permissions: $argument" 2
+        ;;
+    esac
+  done
+}
+
 validate_safe_path_text() {
   local path_value="$1"
   local path_label="$2"
@@ -149,6 +186,9 @@ validate_skill_directory() {
     "references/file-formats.md"
     "scripts/run-repository-agent.sh"
     "scripts/run-repository-agents.sh"
+    "scripts/request-repository-agent-run.sh"
+    "scripts/repository-agent-broker.sh"
+    "scripts/task-progress.sh"
     "scripts/scaffold-feature.sh"
     "scripts/validate-task-packet.sh"
     "scripts/report-run.sh"
@@ -158,28 +198,28 @@ validate_skill_directory() {
   )
 
   if [[ -L "$skill_directory" ]]; then
-    fail "Refusing to use a symbolic link as a RepoMux skill: $skill_directory"
+    fail "Refusing to use a symbolic link as a RepoChord skill: $skill_directory"
   fi
 
   if [[ ! -d "$skill_directory" ]]; then
-    fail "RepoMux skill directory does not exist: $skill_directory"
+    fail "RepoChord skill directory does not exist: $skill_directory"
   fi
 
   for relative_path in "${required_files[@]}"; do
     if [[ ! -f "$skill_directory/$relative_path" ]]; then
-      fail "Required RepoMux skill file is missing: $relative_path"
+      fail "Required RepoChord skill file is missing: $relative_path"
     fi
   done
 
-  if ! grep -q '^name: repomux$' "$skill_directory/SKILL.md"; then
-    fail "RepoMux SKILL.md has the wrong skill name."
+  if ! grep -q '^name: repochord$' "$skill_directory/SKILL.md"; then
+    fail "RepoChord SKILL.md has the wrong skill name."
   fi
 
   for script_path in "$skill_directory"/scripts/*.sh; do
     bash -n "$script_path"
 
     if [[ ! -x "$script_path" ]]; then
-      fail "RepoMux skill script is not executable: $script_path"
+      fail "RepoChord skill script is not executable: $script_path"
     fi
   done
 
@@ -198,31 +238,31 @@ validate_task_skill_directory() {
   )
 
   if [[ -L "$skill_directory" ]]; then
-    fail "Refusing to use a symbolic link as a RepoMux task-authoring skill: $skill_directory"
+    fail "Refusing to use a symbolic link as a RepoChord task-authoring skill: $skill_directory"
   fi
 
   if [[ ! -d "$skill_directory" ]]; then
-    fail "RepoMux task-authoring skill directory does not exist: $skill_directory"
+    fail "RepoChord task-authoring skill directory does not exist: $skill_directory"
   fi
 
   for relative_path in "${required_files[@]}"; do
     if [[ ! -f "$skill_directory/$relative_path" ]]; then
-      fail "Required RepoMux task-authoring skill file is missing: $relative_path"
+      fail "Required RepoChord task-authoring skill file is missing: $relative_path"
     fi
   done
 
-  if ! grep -q '^name: create-repomux-task$' "$skill_directory/SKILL.md"; then
-    fail "RepoMux task-authoring SKILL.md has the wrong skill name."
+  if ! grep -q '^name: create-repochord-task$' "$skill_directory/SKILL.md"; then
+    fail "RepoChord task-authoring SKILL.md has the wrong skill name."
   fi
 }
 
 validate_projects_registry() {
   if [[ -L "$projects_registry" ]]; then
-    fail "Refusing to use a symbolic link as the RepoMux project registry: $projects_registry"
+    fail "Refusing to use a symbolic link as the RepoChord project registry: $projects_registry"
   fi
 
   if [[ ! -f "$projects_registry" ]]; then
-    fail "No RepoMux projects are registered. Run repomux init first." 2
+    fail "No RepoChord projects are registered. Run rchord init first." 2
   fi
 
   if ! jq -e '
@@ -273,7 +313,7 @@ validate_projects_registry() {
          (.maxParallel <= 999999999)))
     )
   ' "$projects_registry" >/dev/null; then
-    fail "RepoMux project registry is invalid: $projects_registry"
+    fail "RepoChord project registry is invalid: $projects_registry"
   fi
 }
 
@@ -354,7 +394,7 @@ validate_project_data() {
   local canonical_repository_path
 
   coordinate_root="$(canonical_git_root "$coordinate_path" "Coordination repository")"
-  registry_path="$coordinate_root/.repomux/repositories.json"
+  registry_path="$coordinate_root/.repochord/repositories.json"
 
   validate_repository_registry "$registry_path"
 
@@ -381,28 +421,28 @@ validate_project_files() {
   local installed_task_skill
 
   coordinate_root="$(canonical_git_root "$coordinate_path" "Coordination repository")"
-  installed_skill="$coordinate_root/.agents/skills/repomux"
-  installed_task_skill="$coordinate_root/.agents/skills/create-repomux-task"
+  installed_skill="$coordinate_root/.agents/skills/repochord"
+  installed_task_skill="$coordinate_root/.agents/skills/create-repochord-task"
 
   validate_skill_directory "$source_skill"
   validate_task_skill_directory "$source_task_skill"
 
   if [[ -L "$installed_skill" ]]; then
-    fail "Refusing to use a symbolic link as a RepoMux skill: $installed_skill"
+    fail "Refusing to use a symbolic link as a RepoChord skill: $installed_skill"
   fi
 
   if [[ ! -d "$installed_skill" ]] || ! diff -qr "$source_skill" "$installed_skill" >/dev/null; then
-    fail "Installed project skill differs from RepoMux: $installed_skill. Run repomux upgrade."
+    fail "Installed project skill differs from RepoChord: $installed_skill. Run rchord upgrade."
   fi
 
   validate_skill_directory "$installed_skill"
 
   if [[ -L "$installed_task_skill" ]]; then
-    fail "Refusing to use a symbolic link as a RepoMux task-authoring skill: $installed_task_skill"
+    fail "Refusing to use a symbolic link as a RepoChord task-authoring skill: $installed_task_skill"
   fi
 
   if [[ ! -d "$installed_task_skill" ]] || ! diff -qr "$source_task_skill" "$installed_task_skill" >/dev/null; then
-    fail "Installed project task-authoring skill differs from RepoMux: $installed_task_skill. Run repomux upgrade."
+    fail "Installed project task-authoring skill differs from RepoChord: $installed_task_skill. Run rchord upgrade."
   fi
 
   validate_task_skill_directory "$installed_task_skill"
@@ -425,7 +465,7 @@ validate_upgrade_target() {
   for expected_directory in \
     "$coordinate_root/.agents" \
     "$coordinate_root/.agents/skills" \
-    "$coordinate_root/.repomux"
+    "$coordinate_root/.repochord"
   do
     if [[ -L "$expected_directory" ]]; then
       fail "Refusing to use a symbolic link as a project directory: $expected_directory"
@@ -436,8 +476,8 @@ validate_upgrade_target() {
     fi
   done
 
-  destination_skill="$coordinate_root/.agents/skills/repomux"
-  destination_task_skill="$coordinate_root/.agents/skills/create-repomux-task"
+  destination_skill="$coordinate_root/.agents/skills/repochord"
+  destination_task_skill="$coordinate_root/.agents/skills/create-repochord-task"
 
   if [[ -L "$destination_skill" ]]; then
     fail "Refusing to use a symbolic link as the project skill: $destination_skill"
@@ -468,6 +508,7 @@ upgrade_project_runtime() (
   local skills_directory
   local destination_skill
   local destination_task_skill
+  local private_repositories_root
   local upgrade_workspace=""
   local replacement_skill
   local replacement_task_skill
@@ -487,20 +528,20 @@ upgrade_project_runtime() (
     trap - EXIT INT TERM
 
     if [[ "$status" -ne 0 && -n "$upgrade_workspace" ]]; then
-      failed_skill="$upgrade_workspace/failed-repomux"
-      failed_task_skill="$upgrade_workspace/failed-create-repomux-task"
+      failed_skill="$upgrade_workspace/failed-repochord"
+      failed_task_skill="$upgrade_workspace/failed-create-repochord-task"
 
       if [[ -e "$previous_skill" ]]; then
         if [[ -e "$destination_skill" ]] && ! mv -- "$destination_skill" "$failed_skill"; then
-          echo "Could not remove the failed RepoMux skill during rollback: $destination_skill" >&2
+          echo "Could not remove the failed RepoChord skill during rollback: $destination_skill" >&2
           rollback_failed=true
         fi
 
         if [[ -e "$destination_skill" ]]; then
-          echo "Could not restore the previous RepoMux skill because its path is occupied: $destination_skill" >&2
+          echo "Could not restore the previous RepoChord skill because its path is occupied: $destination_skill" >&2
           rollback_failed=true
         elif ! mv -- "$previous_skill" "$destination_skill"; then
-          echo "Could not restore the previous RepoMux skill: $previous_skill" >&2
+          echo "Could not restore the previous RepoChord skill: $previous_skill" >&2
           rollback_failed=true
         fi
       elif [[ "$destination_existed" == false &&
@@ -508,22 +549,22 @@ upgrade_project_runtime() (
         -e "$destination_skill" ]]
       then
         if ! mv -- "$destination_skill" "$failed_skill"; then
-          echo "Could not remove the failed RepoMux skill during rollback: $destination_skill" >&2
+          echo "Could not remove the failed RepoChord skill during rollback: $destination_skill" >&2
           rollback_failed=true
         fi
       fi
 
       if [[ -e "$previous_task_skill" ]]; then
         if [[ -e "$destination_task_skill" ]] && ! mv -- "$destination_task_skill" "$failed_task_skill"; then
-          echo "Could not remove the failed RepoMux task-authoring skill during rollback: $destination_task_skill" >&2
+          echo "Could not remove the failed RepoChord task-authoring skill during rollback: $destination_task_skill" >&2
           rollback_failed=true
         fi
 
         if [[ -e "$destination_task_skill" ]]; then
-          echo "Could not restore the previous RepoMux task-authoring skill because its path is occupied: $destination_task_skill" >&2
+          echo "Could not restore the previous RepoChord task-authoring skill because its path is occupied: $destination_task_skill" >&2
           rollback_failed=true
         elif ! mv -- "$previous_task_skill" "$destination_task_skill"; then
-          echo "Could not restore the previous RepoMux task-authoring skill: $previous_task_skill" >&2
+          echo "Could not restore the previous RepoChord task-authoring skill: $previous_task_skill" >&2
           rollback_failed=true
         fi
       elif [[ "$task_destination_existed" == false &&
@@ -531,14 +572,14 @@ upgrade_project_runtime() (
         -e "$destination_task_skill" ]]
       then
         if ! mv -- "$destination_task_skill" "$failed_task_skill"; then
-          echo "Could not remove the failed RepoMux task-authoring skill during rollback: $destination_task_skill" >&2
+          echo "Could not remove the failed RepoChord task-authoring skill during rollback: $destination_task_skill" >&2
           rollback_failed=true
         fi
       fi
     fi
 
     if [[ "$rollback_failed" == true ]]; then
-      echo "RepoMux kept the upgrade workspace for manual recovery: $upgrade_workspace" >&2
+      echo "RepoChord kept the upgrade workspace for manual recovery: $upgrade_workspace" >&2
       exit 1
     fi
 
@@ -556,8 +597,21 @@ upgrade_project_runtime() (
   validate_upgrade_target "$coordinate_path"
   coordinate_root="$validated_upgrade_coordinate"
   skills_directory="$coordinate_root/.agents/skills"
-  destination_skill="$skills_directory/repomux"
-  destination_task_skill="$skills_directory/create-repomux-task"
+  destination_skill="$skills_directory/repochord"
+  destination_task_skill="$skills_directory/create-repochord-task"
+  private_repositories_root="$coordinate_root/.repochord/repositories"
+
+  if [[ -L "$private_repositories_root" || \
+    ( -e "$private_repositories_root" && ! -d "$private_repositories_root" ) ]]
+  then
+    fail "Private repository root is not a directory: $private_repositories_root"
+  fi
+
+  mkdir -p "$private_repositories_root"
+
+  if [[ ! -e "$private_repositories_root/.gitignore" ]]; then
+    printf '*\n!.gitignore\n' > "$private_repositories_root/.gitignore"
+  fi
 
   if [[ -d "$destination_skill" && -d "$destination_task_skill" ]] &&
     diff -qr "$source_skill" "$destination_skill" >/dev/null &&
@@ -565,7 +619,7 @@ upgrade_project_runtime() (
   then
     validate_skill_directory "$destination_skill"
     validate_task_skill_directory "$destination_task_skill"
-    echo "RepoMux project is already current: $project_name"
+    echo "RepoChord project is already current: $project_name"
     exit 0
   fi
 
@@ -577,48 +631,48 @@ upgrade_project_runtime() (
     task_destination_existed=true
   fi
 
-  if ! upgrade_workspace="$(mktemp -d "$skills_directory/.repomux-upgrade.XXXXXX")"; then
+  if ! upgrade_workspace="$(mktemp -d "$skills_directory/.repochord-upgrade.XXXXXX")"; then
     fail "Could not create an upgrade workspace for: $project_name"
   fi
 
-  replacement_skill="$upgrade_workspace/replacement-repomux"
-  replacement_task_skill="$upgrade_workspace/replacement-create-repomux-task"
-  previous_skill="$upgrade_workspace/previous-repomux"
-  previous_task_skill="$upgrade_workspace/previous-create-repomux-task"
-  mkdir "$replacement_skill" || fail "Could not stage the RepoMux skill for: $project_name"
-  mkdir "$replacement_task_skill" || fail "Could not stage the RepoMux task-authoring skill for: $project_name"
-  cp -R "$source_skill/." "$replacement_skill/" || fail "Could not copy the RepoMux skill for: $project_name"
-  cp -R "$source_task_skill/." "$replacement_task_skill/" || fail "Could not copy the RepoMux task-authoring skill for: $project_name"
-  chmod +x "$replacement_skill"/scripts/*.sh || fail "Could not make the staged RepoMux scripts executable for: $project_name"
+  replacement_skill="$upgrade_workspace/replacement-repochord"
+  replacement_task_skill="$upgrade_workspace/replacement-create-repochord-task"
+  previous_skill="$upgrade_workspace/previous-repochord"
+  previous_task_skill="$upgrade_workspace/previous-create-repochord-task"
+  mkdir "$replacement_skill" || fail "Could not stage the RepoChord skill for: $project_name"
+  mkdir "$replacement_task_skill" || fail "Could not stage the RepoChord task-authoring skill for: $project_name"
+  cp -R "$source_skill/." "$replacement_skill/" || fail "Could not copy the RepoChord skill for: $project_name"
+  cp -R "$source_task_skill/." "$replacement_task_skill/" || fail "Could not copy the RepoChord task-authoring skill for: $project_name"
+  chmod +x "$replacement_skill"/scripts/*.sh || fail "Could not make the staged RepoChord scripts executable for: $project_name"
   validate_skill_directory "$replacement_skill"
   validate_task_skill_directory "$replacement_task_skill"
 
   if [[ -d "$destination_skill" ]]; then
-    mv -- "$destination_skill" "$previous_skill" || fail "Could not preserve the previous RepoMux skill for: $project_name"
+    mv -- "$destination_skill" "$previous_skill" || fail "Could not preserve the previous RepoChord skill for: $project_name"
   fi
 
   if [[ -d "$destination_task_skill" ]]; then
-    mv -- "$destination_task_skill" "$previous_task_skill" || fail "Could not preserve the previous RepoMux task-authoring skill for: $project_name"
+    mv -- "$destination_task_skill" "$previous_task_skill" || fail "Could not preserve the previous RepoChord task-authoring skill for: $project_name"
   fi
 
   replacement_install_started=true
-  mv -- "$replacement_skill" "$destination_skill" || fail "Could not install the RepoMux skill for: $project_name"
+  mv -- "$replacement_skill" "$destination_skill" || fail "Could not install the RepoChord skill for: $project_name"
   task_replacement_install_started=true
-  mv -- "$replacement_task_skill" "$destination_task_skill" || fail "Could not install the RepoMux task-authoring skill for: $project_name"
+  mv -- "$replacement_task_skill" "$destination_task_skill" || fail "Could not install the RepoChord task-authoring skill for: $project_name"
 
   validate_skill_directory "$destination_skill"
   validate_task_skill_directory "$destination_task_skill"
 
   if ! diff -qr "$source_skill" "$destination_skill" >/dev/null; then
-    fail "Upgraded project skill differs from RepoMux: $destination_skill"
+    fail "Upgraded project skill differs from RepoChord: $destination_skill"
   fi
 
   if ! diff -qr "$source_task_skill" "$destination_task_skill" >/dev/null; then
-    fail "Upgraded project task-authoring skill differs from RepoMux: $destination_task_skill"
+    fail "Upgraded project task-authoring skill differs from RepoChord: $destination_task_skill"
   fi
 
   validate_project_data "$coordinate_root"
-  echo "Upgraded RepoMux project: $project_name"
+  echo "Upgraded RepoChord project: $project_name"
   exit 0
 )
 
@@ -650,7 +704,7 @@ resolve_project() {
     ' "$projects_registry")"
 
     if [[ -z "$selected_coordinate" ]]; then
-      fail "RepoMux project is not registered: $requested_project" 2
+      fail "RepoChord project is not registered: $requested_project" 2
     fi
 
     selected_project="$requested_project"
@@ -670,7 +724,7 @@ resolve_project() {
       continue
     fi
 
-    registry_path="$coordinate_path/.repomux/repositories.json"
+    registry_path="$coordinate_path/.repochord/repositories.json"
 
     if [[ -n "$current_git_root" && -f "$registry_path" ]] &&
       jq -e --arg path "$current_git_root" 'any(.repositories[]; .path == $path)' "$registry_path" >/dev/null 2>&1
@@ -687,7 +741,7 @@ resolve_project() {
   fi
 
   if [[ "${#matching_names[@]}" -gt 1 ]]; then
-    echo "The current repository belongs to more than one RepoMux project." >&2
+    echo "The current repository belongs to more than one RepoChord project." >&2
     printf '  %s\n' "${matching_names[@]}" >&2
     fail "Use --project <name> to select one project." 2
   fi
@@ -700,7 +754,7 @@ resolve_project() {
     return
   fi
 
-  echo "RepoMux cannot select a project from the current directory." >&2
+  echo "RepoChord cannot select a project from the current directory." >&2
   echo "Registered projects:" >&2
   jq -r '.projects[].name | "  " + .' "$projects_registry" >&2
   fail "Use --project <name> to select one project." 2
@@ -813,7 +867,7 @@ completion_project_coordinate() {
       continue
     fi
 
-    registry_path="$coordinate_path/.repomux/repositories.json"
+    registry_path="$coordinate_path/.repochord/repositories.json"
 
     if [[ -n "$current_git_root" && ! -L "$registry_path" && -f "$registry_path" ]] &&
       jq -e --arg path "$current_git_root" '
@@ -870,7 +924,7 @@ run_completion_candidates() {
         return 0
       fi
 
-      registry_path="$coordinate_path/.repomux/repositories.json"
+      registry_path="$coordinate_path/.repochord/repositories.json"
 
       if [[ -L "$registry_path" || ! -f "$registry_path" ]]; then
         return 0
@@ -900,7 +954,7 @@ run_completion_candidates() {
         return 0
       fi
 
-      results_root="$coordinate_path/.repomux/results"
+      results_root="$coordinate_path/.repochord/results"
 
       if [[ -L "$results_root" || ! -d "$results_root" ]]; then
         return 0
@@ -928,7 +982,7 @@ run_completion_candidates() {
 
 print_bash_completion() {
   cat <<'EOF'
-_repomux_selected_project() {
+_rchord_selected_project() {
   local index
 
   for ((index = 1; index < COMP_CWORD; index++)); do
@@ -943,20 +997,20 @@ _repomux_selected_project() {
   done
 }
 
-_repomux_dynamic_candidates() {
+_rchord_dynamic_candidates() {
   local candidate_type="$1"
   local project_name
 
-  project_name="$(_repomux_selected_project)"
+  project_name="$(_rchord_selected_project)"
 
   if [[ -n "$project_name" ]]; then
-    command repomux __complete "$candidate_type" "$project_name" 2>/dev/null
+    command rchord __complete "$candidate_type" "$project_name" 2>/dev/null
   else
-    command repomux __complete "$candidate_type" 2>/dev/null
+    command rchord __complete "$candidate_type" 2>/dev/null
   fi
 }
 
-_repomux_complete_words() {
+_rchord_complete_words() {
   local words="$1"
   local current_word="$2"
   local candidate
@@ -968,7 +1022,7 @@ _repomux_complete_words() {
   done < <(compgen -W "$words" -- "$current_word")
 }
 
-_repomux_complete_directories() {
+_rchord_complete_directories() {
   local current_word="$1"
   local candidate
 
@@ -979,7 +1033,7 @@ _repomux_complete_directories() {
   done < <(compgen -d -- "$current_word")
 }
 
-_repomux() {
+_rchord() {
   local current_word="${COMP_WORDS[COMP_CWORD]}"
   local previous_word=""
   local command_name="${COMP_WORDS[1]:-}"
@@ -988,7 +1042,7 @@ _repomux() {
   local index
   local skip_next=false
   local candidates=""
-  local commands="start init config list upgrade validate report integrate cleanup completion"
+  local commands="start init config list upgrade validate report integrate resume cleanup completion"
   local settings="model coordinator-reasoning-effort repository-agent-reasoning-effort max-parallel max-attempts"
   local efforts="minimal low medium high xhigh"
 
@@ -997,7 +1051,7 @@ _repomux() {
   fi
 
   if [[ "$COMP_CWORD" -eq 1 ]]; then
-    _repomux_complete_words "$commands -p --project -r --repository --model --coordinator-reasoning-effort --repository-agent-reasoning-effort --max-parallel --max-attempts --allow-dirty-source -h --help" "$current_word"
+    _rchord_complete_words "$commands -p --project -r --repository --model --coordinator-reasoning-effort --repository-agent-reasoning-effort --max-parallel --max-attempts --allow-dirty-source -h --help" "$current_word"
     return
   fi
 
@@ -1007,34 +1061,34 @@ _repomux() {
 
   case "$previous_word" in
     -p|--project)
-      candidates="$(command repomux __complete projects 2>/dev/null)"
-      _repomux_complete_words "$candidates" "$current_word"
+      candidates="$(command rchord __complete projects 2>/dev/null)"
+      _rchord_complete_words "$candidates" "$current_word"
       return
       ;;
     --run)
-      candidates="$(_repomux_dynamic_candidates runs)"
-      _repomux_complete_words "$candidates" "$current_word"
+      candidates="$(_rchord_dynamic_candidates runs)"
+      _rchord_complete_words "$candidates" "$current_word"
       return
       ;;
-    -r|--repository)
+    -r|--repository|--retry-blocked)
       if [[ "$command_name" != "init" ]]; then
-        candidates="$(_repomux_dynamic_candidates repositories)"
-        _repomux_complete_words "$candidates" "$current_word"
+        candidates="$(_rchord_dynamic_candidates repositories)"
+        _rchord_complete_words "$candidates" "$current_word"
       fi
       return
       ;;
     --coordinator-reasoning-effort|--repository-agent-reasoning-effort)
-      _repomux_complete_words "$efforts" "$current_word"
+      _rchord_complete_words "$efforts" "$current_word"
       return
       ;;
     -c|--coordinate)
-      _repomux_complete_directories "$current_word"
+      _rchord_complete_directories "$current_word"
       return
       ;;
   esac
 
   if [[ "$command_name" == "completion" ]]; then
-    _repomux_complete_words "bash zsh" "$current_word"
+    _rchord_complete_words "bash zsh" "$current_word"
     return
   fi
 
@@ -1042,7 +1096,7 @@ _repomux() {
     action="${COMP_WORDS[2]:-}"
 
     if [[ "$COMP_CWORD" -eq 2 ]]; then
-      _repomux_complete_words "get set" "$current_word"
+      _rchord_complete_words "get set" "$current_word"
       return
     fi
 
@@ -1067,7 +1121,7 @@ _repomux() {
     done
 
     if [[ -z "$setting_name" ]]; then
-      _repomux_complete_words "$settings -p --project -h --help" "$current_word"
+      _rchord_complete_words "$settings -p --project -h --help" "$current_word"
       return
     fi
 
@@ -1075,7 +1129,7 @@ _repomux() {
       ( "$setting_name" == "coordinator-reasoning-effort" ||
         "$setting_name" == "repository-agent-reasoning-effort" ) ]]
     then
-      _repomux_complete_words "$efforts" "$current_word"
+      _rchord_complete_words "$efforts" "$current_word"
     fi
     return
   fi
@@ -1102,24 +1156,27 @@ _repomux() {
     integrate)
       candidates="-p --project --run --dry-run --show-diffs -h --help"
       ;;
+    resume)
+      candidates="-p --project --run --retry-blocked --max-attempts -h --help"
+      ;;
     cleanup)
-      candidates="-p --project --run -r --repository --force -h --help"
+      candidates="-p --project --run --all -r --repository --force -h --help"
       ;;
     *)
       candidates=""
       ;;
   esac
 
-  _repomux_complete_words "$candidates" "$current_word"
+  _rchord_complete_words "$candidates" "$current_word"
 }
 
-complete -F _repomux repomux
+complete -F _rchord rchord
 EOF
 }
 
 print_zsh_completion() {
   cat <<'EOF'
-_repomux_selected_project() {
+_rchord_selected_project() {
   local index
 
   for ((index = 2; index < CURRENT; index++)); do
@@ -1134,37 +1191,37 @@ _repomux_selected_project() {
   done
 }
 
-_repomux_projects() {
+_rchord_projects() {
   local -a candidates
-  candidates=("${(@f)$(command repomux __complete projects 2>/dev/null)}")
+  candidates=("${(@f)$(command rchord __complete projects 2>/dev/null)}")
   compadd -- "${candidates[@]}"
 }
 
-_repomux_dynamic_candidates() {
+_rchord_dynamic_candidates() {
   local candidate_type="$1"
   local project_name
   local -a candidates
 
-  project_name="$(_repomux_selected_project)"
+  project_name="$(_rchord_selected_project)"
 
   if [[ -n "$project_name" ]]; then
-    candidates=("${(@f)$(command repomux __complete "$candidate_type" "$project_name" 2>/dev/null)}")
+    candidates=("${(@f)$(command rchord __complete "$candidate_type" "$project_name" 2>/dev/null)}")
   else
-    candidates=("${(@f)$(command repomux __complete "$candidate_type" 2>/dev/null)}")
+    candidates=("${(@f)$(command rchord __complete "$candidate_type" 2>/dev/null)}")
   fi
 
   compadd -- "${candidates[@]}"
 }
 
-_repomux_repositories() {
-  _repomux_dynamic_candidates repositories
+_rchord_repositories() {
+  _rchord_dynamic_candidates repositories
 }
 
-_repomux_runs() {
-  _repomux_dynamic_candidates runs
+_rchord_runs() {
+  _rchord_dynamic_candidates runs
 }
 
-_repomux() {
+_rchord() {
   local current_word="${words[CURRENT]}"
   local previous_word=""
   local command_name="${words[2]:-}"
@@ -1177,7 +1234,7 @@ _repomux() {
   local -a settings
   local -a efforts
 
-  commands=(start init config list upgrade validate report integrate cleanup completion)
+  commands=(start init config list upgrade validate report integrate resume cleanup completion)
   settings=(model coordinator-reasoning-effort repository-agent-reasoning-effort max-parallel max-attempts)
   efforts=(minimal low medium high xhigh)
 
@@ -1197,18 +1254,18 @@ _repomux() {
 
   case "$previous_word" in
     -p|--project)
-      _repomux_projects
+      _rchord_projects
       return
       ;;
     --run)
-      _repomux_runs
+      _rchord_runs
       return
       ;;
-    -r|--repository)
+    -r|--repository|--retry-blocked)
       if [[ "$command_name" == "init" ]]; then
         _message 'repository key=absolute-path'
       else
-        _repomux_repositories
+        _rchord_repositories
       fi
       return
       ;;
@@ -1292,8 +1349,11 @@ _repomux() {
     integrate)
       candidates=(-p --project --run --dry-run --show-diffs -h --help)
       ;;
+    resume)
+      candidates=(-p --project --run --retry-blocked --max-attempts -h --help)
+      ;;
     cleanup)
-      candidates=(-p --project --run -r --repository --force -h --help)
+      candidates=(-p --project --run --all -r --repository --force -h --help)
       ;;
     *)
       candidates=()
@@ -1308,7 +1368,7 @@ if (( ! $+functions[compdef] )); then
   compinit
 fi
 
-compdef _repomux repomux
+compdef _rchord rchord
 EOF
 }
 
@@ -1502,7 +1562,7 @@ run_init() {
   done
 
   if [[ -z "$project_name" ]]; then
-    fail "RepoMux init requires --project <name>." 2
+    fail "RepoChord init requires --project <name>." 2
   fi
 
   validate_project_name "$project_name"
@@ -1559,9 +1619,9 @@ run_init() {
     repository_paths+=("$canonical_repository_path")
   done
 
-  destination_skill="$coordinate_root/.agents/skills/repomux"
-  destination_task_skill="$coordinate_root/.agents/skills/create-repomux-task"
-  registry_path="$coordinate_root/.repomux/repositories.json"
+  destination_skill="$coordinate_root/.agents/skills/repochord"
+  destination_task_skill="$coordinate_root/.agents/skills/create-repochord-task"
+  registry_path="$coordinate_root/.repochord/repositories.json"
 
   if [[ -L "$destination_skill" ]]; then
     fail "Refusing to use a symbolic link as the project skill: $destination_skill"
@@ -1576,11 +1636,11 @@ run_init() {
   fi
 
   if [[ "${#repository_keys[@]}" -eq 0 && ! -f "$registry_path" ]]; then
-    fail "RepoMux init requires at least one --repository option for a new project." 2
+    fail "RepoChord init requires at least one --repository option for a new project." 2
   fi
 
-  temporary_repository_registry="$(mktemp "${TMPDIR:-/tmp}/repomux-repositories.XXXXXX")"
-  temporary_projects_registry="$(mktemp "${TMPDIR:-/tmp}/repomux-projects.XXXXXX")"
+  temporary_repository_registry="$(mktemp "${TMPDIR:-/tmp}/repochord-repositories.XXXXXX")"
+  temporary_projects_registry="$(mktemp "${TMPDIR:-/tmp}/repochord-projects.XXXXXX")"
 
   cleanup_init() {
     rm -f -- "$temporary_repository_registry" "$temporary_projects_registry"
@@ -1614,9 +1674,10 @@ run_init() {
   for expected_directory in \
     "$coordinate_root/.agents" \
     "$coordinate_root/.agents/skills" \
-    "$coordinate_root/.repomux" \
-    "$coordinate_root/.repomux/results" \
-    "$coordinate_root/.repomux/worktrees" \
+    "$coordinate_root/.repochord" \
+    "$coordinate_root/.repochord/repositories" \
+    "$coordinate_root/.repochord/results" \
+    "$coordinate_root/.repochord/worktrees" \
     "$coordinate_root/requests" \
     "$coordinate_root/tasks"
   do
@@ -1629,8 +1690,8 @@ run_init() {
     fi
   done
 
-  if [[ -e "$repomux_config_directory" && ! -d "$repomux_config_directory" ]]; then
-    fail "RepoMux configuration path is not a directory: $repomux_config_directory"
+  if [[ -e "$repochord_config_directory" && ! -d "$repochord_config_directory" ]]; then
+    fail "RepoChord configuration path is not a directory: $repochord_config_directory"
   fi
 
   if [[ -L "$projects_registry" ]]; then
@@ -1638,7 +1699,7 @@ run_init() {
   fi
 
   if [[ -e "$projects_registry" && ! -f "$projects_registry" ]]; then
-    fail "RepoMux project registry is not a regular file: $projects_registry"
+    fail "RepoChord project registry is not a regular file: $projects_registry"
   fi
 
   if [[ -f "$projects_registry" ]]; then
@@ -1745,21 +1806,26 @@ run_init() {
 
   mkdir -p \
     "$coordinate_root/.agents/skills" \
-    "$coordinate_root/.repomux/results" \
-    "$coordinate_root/.repomux/worktrees" \
+    "$coordinate_root/.repochord/repositories" \
+    "$coordinate_root/.repochord/results" \
+    "$coordinate_root/.repochord/worktrees" \
     "$coordinate_root/requests" \
     "$coordinate_root/tasks"
 
-  if [[ ! -e "$coordinate_root/.repomux/results/.gitignore" ]]; then
-    printf '*\n!.gitignore\n' > "$coordinate_root/.repomux/results/.gitignore"
+  if [[ ! -e "$coordinate_root/.repochord/results/.gitignore" ]]; then
+    printf '*\n!.gitignore\n' > "$coordinate_root/.repochord/results/.gitignore"
   fi
 
-  if [[ ! -e "$coordinate_root/.repomux/worktrees/.gitignore" ]]; then
-    printf '*\n!.gitignore\n' > "$coordinate_root/.repomux/worktrees/.gitignore"
+  if [[ ! -e "$coordinate_root/.repochord/repositories/.gitignore" ]]; then
+    printf '*\n!.gitignore\n' > "$coordinate_root/.repochord/repositories/.gitignore"
+  fi
+
+  if [[ ! -e "$coordinate_root/.repochord/worktrees/.gitignore" ]]; then
+    printf '*\n!.gitignore\n' > "$coordinate_root/.repochord/worktrees/.gitignore"
   fi
 
   if [[ ! -e "$registry_path" ]]; then
-    registry_stage="$(mktemp "$coordinate_root/.repomux/.repositories.XXXXXX")"
+    registry_stage="$(mktemp "$coordinate_root/.repochord/.repositories.XXXXXX")"
     cp "$temporary_repository_registry" "$registry_stage"
     mv -- "$registry_stage" "$registry_path"
     registry_stage=""
@@ -1767,10 +1833,10 @@ run_init() {
 
   upgrade_project_runtime "$coordinate_root" "$project_name"
 
-  mkdir -p "$repomux_config_directory"
+  mkdir -p "$repochord_config_directory"
 
   if [[ ! -f "$projects_registry" ]] || ! diff -q "$temporary_projects_registry" "$projects_registry" >/dev/null; then
-    projects_stage="$(mktemp "$repomux_config_directory/.projects.XXXXXX")"
+    projects_stage="$(mktemp "$repochord_config_directory/.projects.XXXXXX")"
     cp "$temporary_projects_registry" "$projects_stage"
     mv -- "$projects_stage" "$projects_registry"
     projects_stage=""
@@ -1779,7 +1845,7 @@ run_init() {
   validate_project_files "$coordinate_root"
   validate_projects_registry
 
-  echo "RepoMux project initialized: $project_name"
+  echo "RepoChord project initialized: $project_name"
   echo "Coordination repository: $coordinate_root"
   echo "Repository registry: $registry_path"
   echo "Skill: $destination_skill"
@@ -1814,7 +1880,7 @@ run_upgrade() {
   project_count="$(jq '.projects | length' "$projects_registry")"
 
   if [[ "$project_count" -eq 0 ]]; then
-    echo "No registered RepoMux projects to upgrade."
+    echo "No registered RepoChord projects to upgrade."
     return
   fi
 
@@ -1834,10 +1900,10 @@ run_upgrade() {
   done
 
   if [[ "$failure_count" -ne 0 ]]; then
-    fail "RepoMux could not upgrade $failure_count of $project_count registered projects."
+    fail "RepoChord could not upgrade $failure_count of $project_count registered projects."
   fi
 
-  echo "RepoMux upgrade complete: $project_count registered projects are current."
+  echo "RepoChord upgrade complete: $project_count registered projects are current."
 }
 
 run_list() {
@@ -1872,14 +1938,14 @@ run_list() {
   fi
 
   while IFS=$'\t' read -r project_name coordinate_path; do
-    registry_path="$coordinate_path/.repomux/repositories.json"
+    registry_path="$coordinate_path/.repochord/repositories.json"
     validate_repository_registry "$registry_path"
   done < <(jq -r '.projects[] | [.name, .coordinate] | @tsv' "$projects_registry")
 
   printf 'PROJECT\tCOORDINATE\tREPOSITORY\tPATH\n'
 
   while IFS=$'\t' read -r project_name coordinate_path; do
-    registry_path="$coordinate_path/.repomux/repositories.json"
+    registry_path="$coordinate_path/.repochord/repositories.json"
     jq -r \
       --arg project "$project_name" \
       --arg coordinate "$coordinate_path" \
@@ -1952,7 +2018,7 @@ run_config() {
     model|coordinator-reasoning-effort|repository-agent-reasoning-effort|max-parallel|max-attempts)
       ;;
     *)
-      fail "Unknown RepoMux setting: $setting_name" 2
+      fail "Unknown RepoChord setting: $setting_name" 2
       ;;
   esac
 
@@ -1997,7 +2063,7 @@ run_config() {
       ;;
   esac
 
-  registry_stage="$(mktemp "$repomux_config_directory/.projects.XXXXXX")"
+  registry_stage="$(mktemp "$repochord_config_directory/.projects.XXXXXX")"
 
   cleanup_config() {
     if [[ -n "$registry_stage" ]]; then
@@ -2060,7 +2126,7 @@ run_config() {
   mv -- "$registry_stage" "$projects_registry"
   registry_stage=""
   validate_projects_registry
-  echo "RepoMux $setting_name for $selected_project: $configured_value"
+  echo "RepoChord $setting_name for $selected_project: $configured_value"
   trap - EXIT
 }
 
@@ -2118,7 +2184,7 @@ run_validate() {
 
   codex_interactive_help="$(codex --help 2>&1)"
 
-  for required_flag in --cd --add-dir --sandbox --config; do
+  for required_flag in --cd --profile --config; do
     if [[ "$codex_interactive_help" != *"$required_flag"* ]]; then
       fail "Installed Codex CLI does not support: $required_flag"
     fi
@@ -2126,22 +2192,142 @@ run_validate() {
 
   codex_exec_help="$(codex exec --help 2>&1)"
 
-  for required_flag in --cd --sandbox --ephemeral --json --model --profile --config --output-schema --output-last-message; do
+  for required_flag in --cd --ephemeral --json --model --profile --config --output-schema --output-last-message; do
     if [[ "$codex_exec_help" != *"$required_flag"* ]]; then
       fail "Installed Codex CLI does not support: $required_flag"
     fi
   done
 
   if [[ -n "$selected_project" ]]; then
-    echo "RepoMux project validation passed: $selected_project"
+    echo "RepoChord project validation passed: $selected_project"
   else
-    echo "RepoMux coordination repository validation passed: $validated_coordinate_root"
+    echo "RepoChord coordination repository validation passed: $validated_coordinate_root"
   fi
+}
+
+run_resume() {
+  local requested_project=""
+  local run_id=""
+  local requested_max_attempts=""
+  local retry_blocked_keys=()
+  local retry_blocked_key
+  local existing_key
+  local run_manifest
+  local assignments_file
+  local runner_script
+  local runner_arguments=()
+
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      -p|--project)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        requested_project="$2"
+        shift 2
+        ;;
+      --run)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        run_id="$2"
+        shift 2
+        ;;
+      --retry-blocked)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        validate_repository_key "$2"
+
+        for existing_key in ${retry_blocked_keys[@]+"${retry_blocked_keys[@]}"}; do
+          if [[ "$existing_key" == "$2" ]]; then
+            fail "Duplicate --retry-blocked repository key: $2" 2
+          fi
+        done
+
+        retry_blocked_keys+=("$2")
+        shift 2
+        ;;
+      --max-attempts)
+        if [[ "$#" -lt 2 || -z "$2" ]]; then
+          usage
+          exit 2
+        fi
+
+        requested_max_attempts="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        fail "Unknown resume argument: $1" 2
+        ;;
+    esac
+  done
+
+  if [[ -z "$run_id" ||
+    ! "$run_id" =~ ^[A-Za-z0-9._-]+$ ||
+    "$run_id" == "." ||
+    "$run_id" == ".." ]]
+  then
+    fail "RepoChord resume requires a valid --run <run-id>." 2
+  fi
+
+  if [[ -n "$requested_max_attempts" ]]; then
+    validate_max_attempts "$requested_max_attempts"
+  fi
+
+  require_commands bash git jq
+  resolve_project "$requested_project"
+  validate_project_files "$selected_coordinate"
+
+  run_manifest="$validated_coordinate_root/.repochord/results/$run_id/.manifest.json"
+
+  if [[ -L "$run_manifest" || ! -f "$run_manifest" ]]; then
+    fail "RepoChord run manifest does not exist or is not a regular file: $run_manifest" 2
+  fi
+
+  if ! assignments_file="$(jq -er \
+    --arg run_id "$run_id" \
+    'select(.version == 1 and .run_id == $run_id) | .assignments_file | select(type == "string" and startswith("/"))' \
+    "$run_manifest")"
+  then
+    fail "RepoChord run manifest has no valid assignments path: $run_manifest" 2
+  fi
+
+  if [[ -L "$assignments_file" || ! -f "$assignments_file" ]]; then
+    fail "RepoChord assignments file does not exist or is not a regular file: $assignments_file" 2
+  fi
+
+  assignments_file="$(cd -- "$(dirname -- "$assignments_file")" && pwd -P)/$(basename -- "$assignments_file")"
+
+  runner_script="$validated_coordinate_root/.agents/skills/repochord/scripts/run-repository-agents.sh"
+  runner_arguments=(--resume "$run_id")
+
+  if [[ -n "$requested_max_attempts" ]]; then
+    runner_arguments+=(--max-attempts "$requested_max_attempts")
+  fi
+
+  for retry_blocked_key in ${retry_blocked_keys[@]+"${retry_blocked_keys[@]}"}; do
+    runner_arguments+=(--retry-blocked "$retry_blocked_key")
+  done
+
+  runner_arguments+=("$assignments_file")
+  exec bash "$runner_script" "${runner_arguments[@]}"
 }
 
 run_cleanup() {
   local requested_project=""
   local run_id=""
+  local all_runs=false
   local force=false
   local repository_keys=()
   local cleanup_script
@@ -2167,6 +2353,10 @@ run_cleanup() {
         run_id="$2"
         shift 2
         ;;
+      --all)
+        all_runs=true
+        shift
+        ;;
       -r|--repository)
         if [[ "$#" -lt 2 || -z "$2" ]]; then
           usage
@@ -2191,20 +2381,28 @@ run_cleanup() {
     esac
   done
 
-  if [[ -z "$run_id" || ! "$run_id" =~ ^[A-Za-z0-9._-]+$ ]]; then
-    fail "RepoMux cleanup requires a valid --run <run-id>." 2
+  if [[ "$all_runs" == true && -n "$run_id" ]]; then
+    fail "Use either --run <run-id> or --all with cleanup, not both." 2
+  fi
+
+  if [[ "$all_runs" != true && ( -z "$run_id" || ! "$run_id" =~ ^[A-Za-z0-9._-]+$ ) ]]; then
+    fail "RepoChord cleanup requires a valid --run <run-id> or --all." 2
   fi
 
   require_commands bash git jq
   resolve_project "$requested_project"
   validate_project_files "$selected_coordinate"
-  cleanup_script="$validated_coordinate_root/.agents/skills/repomux/scripts/cleanup-worktrees.sh"
+  cleanup_script="$validated_coordinate_root/.agents/skills/repochord/scripts/cleanup-worktrees.sh"
 
   if [[ "$force" == true ]]; then
     cleanup_arguments+=(--force)
   fi
 
-  cleanup_arguments+=("$run_id")
+  if [[ "$all_runs" == true ]]; then
+    cleanup_arguments+=(--all)
+  else
+    cleanup_arguments+=("$run_id")
+  fi
   if [[ "${#repository_keys[@]}" -gt 0 ]]; then
     cleanup_arguments+=("${repository_keys[@]}")
   fi
@@ -2262,13 +2460,13 @@ run_integrate() {
     "$run_id" == "." || \
     "$run_id" == ".." ]]
   then
-    fail "RepoMux integrate requires a valid --run <run-id>." 2
+    fail "RepoChord integrate requires a valid --run <run-id>." 2
   fi
 
   require_commands bash diff git grep jq
   resolve_project "$requested_project"
   validate_project_files "$selected_coordinate"
-  integration_script="$validated_coordinate_root/.agents/skills/repomux/scripts/integrate-run.sh"
+  integration_script="$validated_coordinate_root/.agents/skills/repochord/scripts/integrate-run.sh"
 
   if [[ "$dry_run" == true ]]; then
     integration_arguments+=(--dry-run)
@@ -2322,13 +2520,13 @@ run_report() {
     "$run_id" == "." || \
     "$run_id" == ".." ]]
   then
-    fail "RepoMux report requires a valid --run <run-id>." 2
+    fail "RepoChord report requires a valid --run <run-id>." 2
   fi
 
   require_commands bash git jq
   resolve_project "$requested_project"
   validate_project_files "$selected_coordinate"
-  report_script="$validated_coordinate_root/.agents/skills/repomux/scripts/report-run.sh"
+  report_script="$validated_coordinate_root/.agents/skills/repochord/scripts/report-run.sh"
   exec bash "$report_script" "$run_id"
 }
 
@@ -2354,6 +2552,22 @@ run_start() {
   local repository_path
   local canonical_repository_path
   local launch_arguments
+  local user_codex_home
+  local installation_id_toml_key
+  local codex_tmp_toml_key
+  local coordinate_scratch_toml_key
+  local broker_requests_toml_key
+  local coordinator_permissions
+  local coordinator_scratch_directory=""
+  local broker_directory=""
+  local broker_requests_directory
+  local broker_responses_directory
+  local broker_registry_snapshot
+  local broker_script
+  local runner_script
+  local broker_pid=""
+  local codex_status=0
+  local index
 
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
@@ -2439,7 +2653,24 @@ run_start() {
     esac
   done
 
-  require_commands bash codex diff git grep jq
+  validate_forwarded_codex_arguments "${codex_arguments[@]}"
+
+  require_commands bash codex diff git grep jq mktemp
+
+  if [[ -n "${CODEX_HOME:-}" ]]; then
+    user_codex_home="$CODEX_HOME"
+  elif [[ -n "${HOME:-}" ]]; then
+    user_codex_home="$HOME/.codex"
+  else
+    fail "HOME and CODEX_HOME are unset." 2
+  fi
+
+  if [[ "$user_codex_home" != /* ]]; then
+    fail "CODEX_HOME must be absolute: $user_codex_home" 2
+  fi
+
+  validate_safe_path_text "$user_codex_home" "CODEX_HOME"
+
   resolve_project "$requested_project"
   validate_project_files "$selected_coordinate"
 
@@ -2512,26 +2743,105 @@ run_start() {
     selected_paths+=("$canonical_repository_path")
   done
 
-  launch_arguments=(
-    -C "$validated_coordinate_root"
-    --sandbox workspace-write
-    --config "model_reasoning_effort=\"$effective_coordinator_reasoning_effort\""
-  )
+  cleanup_start() {
+    local cleanup_status="$?"
 
-  for repository_path in "${selected_paths[@]}"; do
-    launch_arguments+=(--add-dir "$repository_path")
+    if [[ -n "$broker_pid" ]] && kill -0 "$broker_pid" >/dev/null 2>&1; then
+      kill "$broker_pid" >/dev/null 2>&1 || true
+      wait "$broker_pid" >/dev/null 2>&1 || true
+    fi
+
+    if [[ -n "$broker_directory" && -d "$broker_directory" ]]; then
+      rm -rf -- "$broker_directory"
+    fi
+
+    if [[ -n "$coordinator_scratch_directory" && -d "$coordinator_scratch_directory" ]]; then
+      rm -rf -- "$coordinator_scratch_directory"
+    fi
+
+    return "$cleanup_status"
+  }
+
+  trap cleanup_start EXIT
+
+  coordinator_scratch_directory="$(mktemp -d "${TMPDIR:-/tmp}/repochord-coordinator.XXXXXX")"
+  broker_directory="$(mktemp -d "${TMPDIR:-/tmp}/repochord-broker.XXXXXX")"
+  coordinator_scratch_directory="$(cd -- "$coordinator_scratch_directory" && pwd -P)"
+  broker_directory="$(cd -- "$broker_directory" && pwd -P)"
+  broker_requests_directory="$broker_directory/requests"
+  broker_responses_directory="$broker_directory/responses"
+  broker_registry_snapshot="$broker_directory/repositories.json"
+  broker_script="$validated_coordinate_root/.agents/skills/repochord/scripts/repository-agent-broker.sh"
+  runner_script="$validated_coordinate_root/.agents/skills/repochord/scripts/run-repository-agents.sh"
+  mkdir "$broker_requests_directory" "$broker_responses_directory"
+  chmod 700 "$coordinator_scratch_directory" "$broker_directory" "$broker_requests_directory" "$broker_responses_directory"
+
+  for ((index = 0; index < ${#selected_keys[@]}; index++)); do
+    jq -n \
+      --arg key "${selected_keys[$index]}" \
+      --arg path "${selected_paths[$index]}" \
+      '{key: $key, path: $path}'
+  done | jq -s '{version: 1, repositories: .}' > "$broker_registry_snapshot"
+
+  bash "$broker_script" \
+    "$broker_directory" \
+    "$validated_coordinate_root" \
+    "$runner_script" \
+    "$broker_registry_snapshot" \
+    > "$broker_directory/broker.stdout" \
+    2> "$broker_directory/broker.stderr" &
+  broker_pid="$!"
+
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if [[ -f "$broker_directory/ready" ]]; then
+      break
+    fi
+
+    if ! kill -0 "$broker_pid" >/dev/null 2>&1; then
+      cat "$broker_directory/broker.stderr" >&2
+      fail "RepoChord repository-agent broker did not start."
+    fi
+
+    sleep 0.1
   done
 
-  export REPOMUX_MAX_ATTEMPTS="$effective_max_attempts"
-  export REPOMUX_MODEL="$effective_model"
-  export REPOMUX_MAX_PARALLEL="$effective_max_parallel"
-  export REPOMUX_REPOSITORY_AGENT_REASONING_EFFORT="$effective_repository_agent_reasoning_effort"
-  export REPOMUX_ALLOW_DIRTY_SOURCE="$allow_dirty_source"
-  if [[ "${#codex_arguments[@]}" -gt 0 ]]; then
-    exec codex "${launch_arguments[@]}" "${codex_arguments[@]}"
+  if [[ ! -f "$broker_directory/ready" ]]; then
+    fail "RepoChord repository-agent broker did not become ready."
   fi
 
-  exec codex "${launch_arguments[@]}"
+  launch_arguments=(
+    -C "$validated_coordinate_root"
+  )
+
+  if [[ "${#codex_arguments[@]}" -gt 0 ]]; then
+    launch_arguments+=("${codex_arguments[@]}")
+  fi
+
+  installation_id_toml_key="$(jq -Rn --arg value "$user_codex_home/installation_id" '$value')"
+  codex_tmp_toml_key="$(jq -Rn --arg value "$user_codex_home/tmp" '$value')"
+  coordinate_scratch_toml_key="$(jq -Rn --arg value "$coordinator_scratch_directory" '$value')"
+  broker_requests_toml_key="$(jq -Rn --arg value "$broker_requests_directory" '$value')"
+  coordinator_permissions="permissions.repochord-coordinator={ filesystem = { \":root\" = \"read\", \":workspace_roots\" = { \".\" = \"write\", \".git\" = \"read\", \".agents\" = \"read\", \".codex\" = \"read\" }, $coordinate_scratch_toml_key = \"write\", $broker_requests_toml_key = \"write\", $installation_id_toml_key = \"write\", $codex_tmp_toml_key = \"write\" }, network = { enabled = true, allow_local_binding = true, domains = { \"*\" = \"allow\" } } }"
+
+  launch_arguments+=(
+    --config "model_reasoning_effort=\"$effective_coordinator_reasoning_effort\""
+    --config 'features.network_proxy=true'
+    --config "$coordinator_permissions"
+    --config 'default_permissions="repochord-coordinator"'
+  )
+
+  export REPOCHORD_MAX_ATTEMPTS="$effective_max_attempts"
+  export REPOCHORD_MODEL="$effective_model"
+  export REPOCHORD_MAX_PARALLEL="$effective_max_parallel"
+  export REPOCHORD_REPOSITORY_AGENT_REASONING_EFFORT="$effective_repository_agent_reasoning_effort"
+  export REPOCHORD_ALLOW_DIRTY_SOURCE="$allow_dirty_source"
+  export REPOCHORD_BROKER_DIRECTORY="$broker_directory"
+  export TMPDIR="$coordinator_scratch_directory"
+
+  codex "${launch_arguments[@]}" || codex_status="$?"
+  cleanup_start
+  trap - EXIT
+  return "$codex_status"
 }
 
 if [[ "$#" -gt 0 ]]; then
@@ -2582,6 +2892,10 @@ case "$1" in
   integrate)
     shift
     run_integrate "$@"
+    ;;
+  resume)
+    shift
+    run_resume "$@"
     ;;
   completion)
     shift

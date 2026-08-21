@@ -1,16 +1,16 @@
-# Try RepoMux with the Acme example
+# Try RepoChord with the Acme example
 
 The `acme-orders-api` and `acme-storefront` directories contain a small API and web application that work together.
 The `acme-commerce-coordinate` directory contains the `customer-order-cancellation` feature request and repository tasks.
-Use them to try a RepoMux feature across two repositories.
+Use them to try a RepoChord feature across two repositories.
 
-The example directories are part of the RepoMux Git repository, so RepoMux cannot use them in place as separate product repositories.
+The example directories are part of the RepoChord Git repository, so RepoChord cannot use them in place as separate product repositories.
 Copy them to a new directory and initialize each copy as its own Git repository.
 
-From the RepoMux repository root, run:
+From the RepoChord repository root, run:
 
 ```bash
-example_workspace=/absolute/path/to/repomux-acme-example
+example_workspace=/absolute/path/to/repochord-acme-example
 mkdir "$example_workspace"
 
 cp -R examples/acme-orders-api "$example_workspace/acme-orders-api"
@@ -33,33 +33,33 @@ git -C "$example_workspace/acme-commerce-coordinate" commit -m "docs: add order 
 Create and register the coordination repository:
 
 ```bash
-repomux init \
+rchord init \
   --project acme-example \
   --coordinate "$example_workspace/acme-commerce-coordinate" \
   --repository "api=$example_workspace/acme-orders-api" \
   --repository "web=$example_workspace/acme-storefront"
 
-git -C "$example_workspace/acme-commerce-coordinate" add .agents .repomux
-git -C "$example_workspace/acme-commerce-coordinate" commit -m "chore: initialize RepoMux coordination"
+git -C "$example_workspace/acme-commerce-coordinate" add .agents .repochord
+git -C "$example_workspace/acme-commerce-coordinate" commit -m "chore: initialize RepoChord coordination"
 ```
 
-Confirm that RepoMux can find the complete project:
+Confirm that RepoChord can find the complete project:
 
 ```bash
-repomux list --details
-repomux validate --project acme-example
+rchord list --details
+rchord validate --project acme-example
 ```
 
 Start the coordinator from any directory:
 
 ```bash
-repomux --project acme-example
+rchord --project acme-example
 ```
 
 Paste this prompt into Codex:
 
 ```text
-$repomux Implement the existing customer-order-cancellation feature in the request and task files.
+$repochord Implement the existing customer-order-cancellation feature in the request and task files.
 Replace every __EXAMPLE_WORKSPACE__ placeholder with the current example workspace path before running the repository agents.
 ```
 

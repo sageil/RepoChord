@@ -22,6 +22,9 @@ required_files=(
   "references/file-formats.md"
   "scripts/run-repository-agent.sh"
   "scripts/run-repository-agents.sh"
+  "scripts/request-repository-agent-run.sh"
+  "scripts/repository-agent-broker.sh"
+  "scripts/task-progress.sh"
   "scripts/scaffold-feature.sh"
   "scripts/validate-task-packet.sh"
   "scripts/report-run.sh"
@@ -35,7 +38,7 @@ for relative_path in "${required_files[@]}"; do
   fi
 done
 
-if ! grep -q '^name: repomux$' "$skill_directory/SKILL.md"; then
+if ! grep -q '^name: repochord$' "$skill_directory/SKILL.md"; then
   echo "SKILL.md has the wrong skill name." >&2
   exit 1
 fi

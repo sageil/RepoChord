@@ -1,6 +1,6 @@
-# Remux API
+# Acme Orders API
 
-This repository contains a minimal order API for the RepoMux demonstration.
+This repository contains a minimal order API for the RepoChord demonstration.
 
 ## Run
 

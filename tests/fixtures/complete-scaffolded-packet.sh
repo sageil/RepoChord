@@ -20,5 +20,8 @@ while IFS='|' read -r repository_key repository_path task_file extra_field || [[
     exit 1
   fi
 
-  printf '# %s test task for %s\n' "$feature_id" "$repository_key" > "$task_file"
+  printf '# %s test task for %s\n\n## Completion criteria\n\n- [ ] The repository task is complete.\n' \
+    "$feature_id" \
+    "$repository_key" \
+    > "$task_file"
 done < "$assignments_file"

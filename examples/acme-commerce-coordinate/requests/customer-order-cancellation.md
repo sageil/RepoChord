@@ -98,5 +98,5 @@ And the customer can try again.
 ## Completion rules
 
 All required repositories must complete their acceptance criteria and focused tests.
-RepoMux creates local commits after successful repository-agent verification.
+RepoChord creates local commits after successful repository-agent verification.
 Repository agents must not stage, commit, push, or merge changes.
