@@ -7,7 +7,8 @@ set -euo pipefail
 
 test_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repository_directory="$(cd -- "$test_directory/.." && pwd -P)"
-temporary_root="$(mktemp -d /private/tmp/repochord-installer-test.XXXXXX)"
+temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/repochord-installer-test.XXXXXX")"
+temporary_root="$(cd -- "$temporary_root" && pwd -P)"
 
 cleanup() {
   rm -rf -- "$temporary_root"
