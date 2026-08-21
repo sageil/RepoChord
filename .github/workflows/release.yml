@@ -43,6 +43,12 @@ jobs:
             exit 1
           fi
 
+      - name: Install test dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes zsh
+
       - name: Run project checks
         shell: bash
         run: bash tests/run.sh

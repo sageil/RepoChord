@@ -26,7 +26,7 @@ source_fragments=(
   "$repository_directory"/src/test-scripts/*/*.sh
 )
 
-for required_command in bash git jq shellcheck; do
+for required_command in bash git jq shellcheck zsh; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     echo "Required test command is not installed: $required_command" >&2
     exit 2
