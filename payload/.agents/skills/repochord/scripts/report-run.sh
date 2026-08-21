@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 
+# Generated from src/skill-scripts by scripts/build-skill-scripts.sh.
+# Do not edit this script in the payload directly.
+
 set -euo pipefail
+
+if ((BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 2))); then
+  echo "RepoChord requires Bash 5.2 or later." >&2
+  exit 2
+fi
 
 export GIT_OPTIONAL_LOCKS=0
 
@@ -60,6 +68,7 @@ inline_string_list() {
     "$filter | if length == 0 then \$empty_text else map(gsub(\"[\\u0000-\\u001F\\u007F]\"; \" \")) | join(\"; \") end" \
     "$result_path"
 }
+
 
 if [[ "$#" -ne 1 ]]; then
   usage
@@ -293,6 +302,7 @@ for ((index = 0; index < repository_count; index++)); do
         "attempt_count",
         "base_branch",
         "base_commit",
+
         "head_changed",
         "max_attempts",
         "model",

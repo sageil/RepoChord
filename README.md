@@ -19,7 +19,7 @@ It works out what each repository needs, sends each task to an isolated reposito
 
 You need:
 
-- Bash 3.2 or later.
+- Bash 5.2 or later.
 - Git.
 - `jq`.
 - Codex CLI 0.147.0 or later.
@@ -563,3 +563,19 @@ bash /work/acme-commerce-coordinate/.agents/skills/repochord/scripts/run-reposit
 ```
 
 Pass an explicit run ID before the assignments file only when another system requires that exact ID.
+
+## Development
+
+Large Bash programs are assembled from smaller source files under `src/`.
+Do not edit generated Bash files directly.
+
+Generate all checked-in Bash artifacts after a source change:
+
+```bash
+./scripts/build-installer.sh
+./scripts/build-rchord.sh
+./scripts/build-skill-scripts.sh
+./scripts/build-test-scripts.sh
+```
+
+Run `bash tests/run.sh` to check generated-file consistency, behavior, Bash syntax, ShellCheck, skill structure, and the Git diff.

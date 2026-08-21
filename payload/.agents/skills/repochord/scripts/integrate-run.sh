@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 
+# Generated from src/skill-scripts by scripts/build-skill-scripts.sh.
+# Do not edit this script in the payload directly.
+
 set -euo pipefail
+
+if ((BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 2))); then
+  echo "RepoChord requires Bash 5.2 or later." >&2
+  exit 2
+fi
 
 usage() {
   echo "Usage: integrate-run.sh [--dry-run] [--show-diffs] <run-id>" >&2
@@ -779,6 +787,7 @@ for ((index = 0; index < repository_count; index++)); do
     fail "The integration plan changed while confirmation was pending. No changes were made. Run the command again."
   fi
 done
+
 
 empty_hooks_directory="$(mktemp -d "${TMPDIR:-/tmp}/repochord-integration-hooks.XXXXXX")"
 

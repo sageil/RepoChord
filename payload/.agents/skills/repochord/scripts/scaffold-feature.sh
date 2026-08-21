@@ -5,6 +5,11 @@
 
 set -euo pipefail
 
+if ((BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 2))); then
+  echo "RepoChord requires Bash 5.2 or later." >&2
+  exit 2
+fi
+
 usage() {
   echo "Usage: scaffold-feature.sh <feature-id> <repository-key>..." >&2
   echo "   or: scaffold-feature.sh --title <feature-title> <repository-key>..." >&2

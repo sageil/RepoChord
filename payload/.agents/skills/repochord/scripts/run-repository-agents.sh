@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 
+# Generated from src/skill-scripts by scripts/build-skill-scripts.sh.
+# Do not edit this script in the payload directly.
+
 set -euo pipefail
+
+if ((BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 2))); then
+  echo "RepoChord requires Bash 5.2 or later." >&2
+  exit 2
+fi
 
 export GIT_OPTIONAL_LOCKS=0
 
@@ -308,6 +316,7 @@ if [[ ! "$max_attempts" =~ ^[1-9][0-9]*$ || "${#max_attempts}" -gt 9 ]]; then
 fi
 
 # shellcheck disable=SC2329
+
 cleanup() {
   if [[ -n "$run_id_reservation" ]]; then
     rm -rf -- "$run_id_reservation"
@@ -543,6 +552,7 @@ for ((index = 0; index < repository_agent_count; index++)); do
       exit 2
     fi
   fi
+
 
   if ! git -C "$canonical_repository_path" config user.name >/dev/null; then
     echo "Git user.name is not configured for: $repository_path" >&2

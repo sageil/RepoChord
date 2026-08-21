@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Generated from src/test-scripts by scripts/build-test-scripts.sh.
+# Do not edit this test in tests directly.
+
 set -euo pipefail
 
 test_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -36,7 +39,6 @@ empty_coordinate_repository="$temporary_root/empty-control"
 invalid_ref_coordinate_repository="$temporary_root/invalid-ref-control"
 conflict_coordinate_repository="$temporary_root/conflict-control"
 name_collision_coordinate="$temporary_root/name-collision-coordinate"
-bash32_coordinate_repository="$temporary_root/bash32-control"
 test_home="$temporary_root/home"
 command_bin="$temporary_root/commands"
 conflict_bin="$temporary_root/conflict-commands"
@@ -66,6 +68,15 @@ mkdir -p "$test_home" "$conflict_bin" "$link_bin"
 export HOME="$test_home"
 export XDG_CONFIG_HOME="$test_home/.config"
 unset XDG_BIN_HOME XDG_DATA_HOME REPOCHORD_CONFIG_HOME REPOCHORD_DATA_HOME
+
+if /bin/bash -c '((BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 2)))'; then
+  if /bin/bash "$repository_directory/install.sh" --help >"$temporary_root/unsupported-installer-bash.out" 2>&1; then
+    echo "The installer unexpectedly ran with an unsupported Bash version." >&2
+    exit 1
+  fi
+
+  grep -Fqx "RepoChord requires Bash 5.2 or later." "$temporary_root/unsupported-installer-bash.out"
+fi
 
 install_output="$(
   HOME="$test_home" \
@@ -248,6 +259,7 @@ then
 fi
 
 test -L "$link_bin/rchord"
+
 
 if HOME="$test_home" "$rchord_command" init \
   --project duplicate-project \
@@ -763,15 +775,14 @@ diff -u \
 
 grep -Fqx "repository_agent_reasoning_effort=xhigh" "$settings_capture"
 
-HOME="$test_home" \
-/bin/bash "$rchord_command" init \
-  --project bash32-project \
-  --coordinate "$bash32_coordinate_repository" \
-  --create-coordinate \
-  --repository "api=$api_repository" \
-  >/dev/null
+if /bin/bash -c '((BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 2)))'; then
+  if /bin/bash "$rchord_command" --help >"$temporary_root/unsupported-bash.out" 2>&1; then
+    echo "RepoChord unexpectedly ran with an unsupported Bash version." >&2
+    exit 1
+  fi
 
-test -f "$bash32_coordinate_repository/.repochord/repositories.json"
+  grep -Fqx "RepoChord requires Bash 5.2 or later." "$temporary_root/unsupported-bash.out"
+fi
 
 if HOME="$test_home" "$rchord_command" init \
   --project acme-commerce \

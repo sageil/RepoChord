@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 
+# Generated from src/rchord by scripts/build-rchord.sh. Do not edit payload/rchord directly.
+
 set -euo pipefail
+
+if ((BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 2))); then
+  echo "RepoChord requires Bash 5.2 or later." >&2
+  exit 2
+fi
 
 usage() {
   cat >&2 <<'EOF'
@@ -2843,6 +2850,7 @@ run_start() {
   trap - EXIT
   return "$codex_status"
 }
+
 
 if [[ "$#" -gt 0 ]]; then
   case "$1" in

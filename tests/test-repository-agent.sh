@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Generated from src/test-scripts by scripts/build-test-scripts.sh.
+# Do not edit this test in tests directly.
+
 set -euo pipefail
 
 test_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -35,7 +38,6 @@ web_repository="$temporary_root/web"
 empty_repository="$temporary_root/empty"
 coordinate_repository="$temporary_root/control"
 fake_bin="$temporary_root/bin"
-bash32_bin="$temporary_root/bash32-bin"
 capture_directory="$temporary_root/captures"
 test_home="$temporary_root/home"
 command_bin="$temporary_root/commands"
@@ -95,10 +97,6 @@ sed -n '2p' "$assignments_file" > "$web_assignment"
 mkdir -p "$fake_bin" "$capture_directory"
 cp "$test_directory/fixtures/fake-codex.sh" "$fake_bin/codex"
 chmod +x "$fake_bin/codex"
-mkdir -p "$bash32_bin"
-cp "$test_directory/fixtures/fake-codex.sh" "$bash32_bin/codex"
-ln -s "$(command -v jq)" "$bash32_bin/jq"
-chmod +x "$bash32_bin/codex"
 export FAKE_ABSOLUTE_GIT
 FAKE_ABSOLUTE_GIT="$(command -v git)"
 
@@ -737,21 +735,6 @@ jq -e \
   .codex_sqlite_directory_exists == true and
   .codex_sqlite_directory_writable == true
 ' "$capture_directory/web.json" >/dev/null
-
-PATH="$bash32_bin:/usr/bin:/bin" \
-FAKE_CODEX_MODE=completed \
-FAKE_CODEX_CAPTURE_DIRECTORY="$capture_directory/bash32" \
-"$runner" \
-  PROJECT-123-bash32 \
-  "$web_assignment" \
-  >/dev/null
-
-jq -e '
-  .status == "completed" and
-  .execution.attempt_count == 1
-' "$coordinate_repository/.repochord/results/PROJECT-123-bash32/web.json" >/dev/null
-
-jq -e '.bash_version | startswith("3.2.")' "$capture_directory/bash32/web.json" >/dev/null
 
 duplicate_assignments="$temporary_root/duplicate-assignments.txt"
 

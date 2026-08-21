@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 
+# Generated from src/skill-scripts by scripts/build-skill-scripts.sh.
+# Do not edit this script in the payload directly.
+
 set -euo pipefail
+
+if ((BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 2))); then
+  echo "RepoChord requires Bash 5.2 or later." >&2
+  exit 2
+fi
 
 export GIT_OPTIONAL_LOCKS=0
 
@@ -173,6 +181,7 @@ created_logs=()
 created_events=()
 
 # shellcheck disable=SC2329
+
 cleanup() {
   rm -f -- "$temporary_response" "$last_valid_response" "$temporary_result"
   rm -rf -- "$guard_directory"
@@ -477,6 +486,7 @@ finish_blocked() {
       false
   fi
 }
+
 
 if [[ ! -f "$response_schema_path" || ! -f "$result_schema_path" ]]; then
   persist_system_result "blocked" "RepoChord cannot start the repository agent." "A required repository-agent schema does not exist." false

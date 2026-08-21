@@ -68,12 +68,12 @@ test -z "$(HOME="$empty_home" XDG_CONFIG_HOME="$empty_home/.config" "$rchord_com
 HOME="$test_home" "$rchord_command" completion bash > "$bash_completion"
 HOME="$test_home" "$rchord_command" completion zsh > "$zsh_completion"
 
-/bin/bash -n "$bash_completion"
+bash -n "$bash_completion"
 zsh -n "$zsh_completion"
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
-/bin/bash -c '
+bash -c '
   source "$1"
   complete -p rchord >/dev/null
   COMP_WORDS=(rchord start --project acme)
@@ -85,7 +85,7 @@ PATH="$command_bin:$PATH" \
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
-/bin/bash -c '
+bash -c '
   source "$1"
   COMP_WORDS=(rchord cleanup --project acme-commerce --repository ord)
   COMP_CWORD=5
@@ -96,7 +96,7 @@ PATH="$command_bin:$PATH" \
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
-/bin/bash -c '
+bash -c '
   source "$1"
   COMP_WORDS=(rchord cleanup --a)
   COMP_CWORD=2
@@ -107,7 +107,7 @@ PATH="$command_bin:$PATH" \
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
-/bin/bash -c '
+bash -c '
   source "$1"
   COMP_WORDS=(rchord resume --project acme-commerce --run ORDER)
   COMP_CWORD=5
@@ -118,7 +118,7 @@ PATH="$command_bin:$PATH" \
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
-/bin/bash -c '
+bash -c '
   source "$1"
   COMP_WORDS=(rchord resume --project acme-commerce --retry-blocked ord)
   COMP_CWORD=5
@@ -129,7 +129,7 @@ PATH="$command_bin:$PATH" \
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
-/bin/bash -c '
+bash -c '
   source "$1"
   COMP_WORDS=(rchord resume --m)
   COMP_CWORD=2
@@ -140,7 +140,7 @@ PATH="$command_bin:$PATH" \
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
-/bin/bash -c '
+bash -c '
   source "$1"
   COMP_WORDS=(rchord res)
   COMP_CWORD=1
@@ -151,7 +151,7 @@ PATH="$command_bin:$PATH" \
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
-/bin/bash -c '
+bash -c '
   source "$1"
   COMP_WORDS=(rchord integrate --project acme-commerce --run ORDER)
   COMP_CWORD=5
@@ -162,7 +162,7 @@ PATH="$command_bin:$PATH" \
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
-/bin/bash -c '
+bash -c '
   source "$1"
   COMP_WORDS=(rchord integrate --show)
   COMP_CWORD=2
@@ -173,7 +173,7 @@ PATH="$command_bin:$PATH" \
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
-/bin/bash -c '
+bash -c '
   source "$1"
   COMP_WORDS=(rchord report --project acme-commerce --run ORDER)
   COMP_CWORD=5
@@ -184,7 +184,7 @@ PATH="$command_bin:$PATH" \
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
-/bin/bash -c '
+bash -c '
   source "$1"
   COMP_WORDS=(rchord rep)
   COMP_CWORD=1
@@ -195,7 +195,7 @@ PATH="$command_bin:$PATH" \
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
-/bin/bash -c '
+bash -c '
   source "$1"
   COMP_WORDS=(rchord up)
   COMP_CWORD=1
@@ -206,7 +206,7 @@ PATH="$command_bin:$PATH" \
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
-/bin/bash -c '
+bash -c '
   source "$1"
   COMP_WORDS=(rchord upgrade --)
   COMP_CWORD=2
@@ -224,7 +224,7 @@ fi
 
 HOME="$test_home" \
 PATH="$command_bin:$PATH" \
-/bin/bash -c '
+bash -c '
   source "$1"
   COMP_WORDS=(rchord list --d)
   COMP_CWORD=2

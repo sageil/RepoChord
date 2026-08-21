@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 
+# Generated from src/install by scripts/build-installer.sh.
+# Do not edit install.sh directly.
+
 set -euo pipefail
+
+if ((BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 2))); then
+  echo "RepoChord requires Bash 5.2 or later." >&2
+  exit 2
+fi
 
 usage() {
   echo "Usage: install.sh [--upgrade] [--bin-dir <absolute-directory>] [--default-model <model>] [--default-coordinator-reasoning-effort <effort>] [--default-repository-agent-reasoning-effort <effort>] [--default-max-parallel <count>]" >&2
