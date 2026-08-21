@@ -53,6 +53,9 @@ export HOME="$test_home"
 export XDG_CONFIG_HOME="$test_home/.config"
 unset XDG_BIN_HOME XDG_DATA_HOME REPOCHORD_CONFIG_HOME REPOCHORD_DATA_HOME
 
+git config --global user.name "Global Repository User"
+git config --global user.email "global-repository-user@example.com"
+
 HOME="$test_home" \
 "$repository_directory/install.sh" \
   --bin-dir "$command_bin" \
@@ -129,6 +132,9 @@ for repository_key in api web; do
     expected_base_branch="$web_base_branch"
   fi
 
+  expected_user_name="Global Repository User"
+  expected_user_email="global-repository-user@example.com"
+
   expected_worktree="$coordinate_repository/.repochord/worktrees/PROJECT-123-good/$repository_key"
   expected_private_repository="$coordinate_repository/.repochord/repositories/PROJECT-123-good/$repository_key.git"
   expected_worktree_branch="repochord/PROJECT-123-good/$repository_key"
@@ -183,6 +189,16 @@ for repository_key in api web; do
   test "$(git -C "$expected_worktree" symbolic-ref --short HEAD)" = "$expected_worktree_branch"
   test "$(git -C "$expected_worktree" rev-parse HEAD)" = "$(jq -r '.commit' "$result_path")"
   test "$(git -C "$expected_worktree" log -1 --format=%s)" = "test: fake repository agent PROJECT-123-good"
+  test "$(git -C "$expected_worktree" log -1 --format='%an <%ae>')" = \
+    "$expected_user_name <$expected_user_email>"
+  test "$(git -C "$expected_worktree" log -1 --format='%cn <%ce>')" = \
+    "$expected_user_name <$expected_user_email>"
+  if git --git-dir="$expected_private_repository" config --local --get user.name >/dev/null || \
+    git --git-dir="$expected_private_repository" config --local --get user.email >/dev/null
+  then
+    echo "RepoChord wrote identity settings into its private repository." >&2
+    exit 1
+  fi
   jq -e 'has("commit_message") | not' "$result_path" >/dev/null
 
   jq -e \
@@ -423,6 +439,9 @@ failed_resume_worktree="$(jq -r \
   "$coordinate_repository/.repochord/results/PROJECT-123-environment-attempts/web.json")"
 test -d "$failed_resume_worktree"
 
+git config --global user.name "Updated Global User"
+git config --global user.email "updated-global-user@example.com"
+
 HOME="$test_home" \
 PATH="$fake_bin:$PATH" \
 FAKE_CODEX_MODE=completed \
@@ -447,6 +466,14 @@ jq -e '
 ' "$resumed_result" >/dev/null
 
 resumed_commit="$(jq -r '.commit' "$resumed_result")"
+resumed_private_repository="$(jq -r '.execution.private_repository_path' "$resumed_result")"
+test "$(git -C "$resumed_private_repository" log -1 --format='%an <%ae>' "$resumed_commit")" = \
+  "Updated Global User <updated-global-user@example.com>"
+test "$(git -C "$resumed_private_repository" log -1 --format='%cn <%ce>' "$resumed_commit")" = \
+  "Updated Global User <updated-global-user@example.com>"
+
+git config --global user.name "Global Repository User"
+git config --global user.email "global-repository-user@example.com"
 
 PATH="$fake_bin:$PATH" \
 FAKE_CODEX_MODE=fail_after_commit \
@@ -467,7 +494,6 @@ PATH="$fake_bin:$PATH" \
   >/dev/null
 
 test ! -e "$failed_resume_worktree"
-resumed_private_repository="$(jq -r '.execution.private_repository_path' "$resumed_result")"
 test "$(git -C "$resumed_private_repository" rev-parse "refs/heads/repochord/PROJECT-123-environment-attempts/web")" = "$resumed_commit"
 if git -C "$web_repository" show-ref --verify --quiet "refs/heads/repochord/PROJECT-123-environment-attempts/web"; then
   echo "Cleanup test found a RepoChord feature branch in the source repository." >&2

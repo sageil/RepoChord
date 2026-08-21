@@ -40,13 +40,13 @@ if ! git -C "$source_repository_path" rev-parse --verify HEAD >/dev/null 2>&1; t
   exit 1
 fi
 
-if ! git -C "$source_repository_path" config user.name >/dev/null; then
-  persist_system_result "blocked" "RepoChord cannot start the repository agent." "Git user.name is not configured for the repository." false
+if ! global_user_name="$(git config --global --get user.name)" || [[ -z "$global_user_name" ]]; then
+  persist_system_result "blocked" "RepoChord cannot start the repository agent." "Global Git user.name is not configured." false
   exit 1
 fi
 
-if ! git -C "$source_repository_path" config user.email >/dev/null; then
-  persist_system_result "blocked" "RepoChord cannot start the repository agent." "Git user.email is not configured for the repository." false
+if ! global_user_email="$(git config --global --get user.email)" || [[ -z "$global_user_email" ]]; then
+  persist_system_result "blocked" "RepoChord cannot start the repository agent." "Global Git user.email is not configured." false
   exit 1
 fi
 
@@ -178,11 +178,6 @@ else
     persist_system_result "blocked" "RepoChord cannot create the private repository." "The recorded base commit could not be copied into the private repository." false
     exit 1
   fi
-
-  source_user_name="$(git -C "$source_repository_path" config user.name)"
-  source_user_email="$(git -C "$source_repository_path" config user.email)"
-  git --git-dir="$private_repository_path" config user.name "$source_user_name"
-  git --git-dir="$private_repository_path" config user.email "$source_user_email"
 
   if ! git --git-dir="$private_repository_path" \
     -c core.hooksPath="$empty_hooks_directory" \

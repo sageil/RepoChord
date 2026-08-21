@@ -53,6 +53,9 @@ export HOME="$test_home"
 export XDG_CONFIG_HOME="$test_home/.config"
 unset XDG_BIN_HOME XDG_DATA_HOME REPOCHORD_CONFIG_HOME REPOCHORD_DATA_HOME
 
+git config --global user.name "Global Repository User"
+git config --global user.email "global-repository-user@example.com"
+
 HOME="$test_home" \
 "$repository_directory/install.sh" \
   --bin-dir "$command_bin" \

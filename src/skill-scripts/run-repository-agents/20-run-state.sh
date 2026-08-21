@@ -157,6 +157,16 @@ done
 
 canonical_repository_paths=()
 
+if ! global_user_name="$(git config --global --get user.name)" || [[ -z "$global_user_name" ]]; then
+  echo "Global Git user.name is not configured." >&2
+  exit 2
+fi
+
+if ! global_user_email="$(git config --global --get user.email)" || [[ -z "$global_user_email" ]]; then
+  echo "Global Git user.email is not configured." >&2
+  exit 2
+fi
+
 for ((index = 0; index < repository_agent_count; index++)); do
   repository_key="${repository_keys[$index]}"
   repository_path="${repository_paths[$index]}"
@@ -234,16 +244,6 @@ for ((index = 0; index < repository_agent_count; index++)); do
     fi
   fi
 
-
-  if ! git -C "$canonical_repository_path" config user.name >/dev/null; then
-    echo "Git user.name is not configured for: $repository_path" >&2
-    exit 2
-  fi
-
-  if ! git -C "$canonical_repository_path" config user.email >/dev/null; then
-    echo "Git user.email is not configured for: $repository_path" >&2
-    exit 2
-  fi
 
   repository_paths[index]="$canonical_repository_path"
   task_files[index]="$(cd -- "$(dirname -- "$task_file")" && pwd -P)/$(basename -- "$task_file")"

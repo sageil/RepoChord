@@ -1,3 +1,6 @@
+git config --global user.name "Updated Global User"
+git config --global user.email "updated-global-user@example.com"
+
 HOME="$test_home" \
 PATH="$fake_bin:$PATH" \
 FAKE_CODEX_MODE=completed \
@@ -22,6 +25,14 @@ jq -e '
 ' "$resumed_result" >/dev/null
 
 resumed_commit="$(jq -r '.commit' "$resumed_result")"
+resumed_private_repository="$(jq -r '.execution.private_repository_path' "$resumed_result")"
+test "$(git -C "$resumed_private_repository" log -1 --format='%an <%ae>' "$resumed_commit")" = \
+  "Updated Global User <updated-global-user@example.com>"
+test "$(git -C "$resumed_private_repository" log -1 --format='%cn <%ce>' "$resumed_commit")" = \
+  "Updated Global User <updated-global-user@example.com>"
+
+git config --global user.name "Global Repository User"
+git config --global user.email "global-repository-user@example.com"
 
 PATH="$fake_bin:$PATH" \
 FAKE_CODEX_MODE=fail_after_commit \
@@ -42,7 +53,6 @@ PATH="$fake_bin:$PATH" \
   >/dev/null
 
 test ! -e "$failed_resume_worktree"
-resumed_private_repository="$(jq -r '.execution.private_repository_path' "$resumed_result")"
 test "$(git -C "$resumed_private_repository" rev-parse "refs/heads/repochord/PROJECT-123-environment-attempts/web")" = "$resumed_commit"
 if git -C "$web_repository" show-ref --verify --quiet "refs/heads/repochord/PROJECT-123-environment-attempts/web"; then
   echo "Cleanup test found a RepoChord feature branch in the source repository." >&2

@@ -162,7 +162,13 @@ while [[ "$attempt_count" -lt "$max_attempts" ]]; do
     elif ! completed_tree="$(git -C "$worktree_path" write-tree)"; then
       finish_blocked "RepoChord could not create the completed repository tree."
       exit 1
-    elif ! completed_commit="$(git -C "$worktree_path" commit-tree "$completed_tree" -p "$base_commit" -m "$commit_message")"; then
+    elif ! completed_commit="$(
+      GIT_AUTHOR_NAME="$global_user_name" \
+      GIT_AUTHOR_EMAIL="$global_user_email" \
+      GIT_COMMITTER_NAME="$global_user_name" \
+      GIT_COMMITTER_EMAIL="$global_user_email" \
+      git -C "$worktree_path" commit-tree "$completed_tree" -p "$base_commit" -m "$commit_message"
+    )"; then
       finish_blocked "RepoChord could not create the completed repository commit."
       exit 1
     elif ! git -C "$worktree_path" \

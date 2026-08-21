@@ -26,6 +26,9 @@ for repository_key in api web; do
     expected_base_branch="$web_base_branch"
   fi
 
+  expected_user_name="Global Repository User"
+  expected_user_email="global-repository-user@example.com"
+
   expected_worktree="$coordinate_repository/.repochord/worktrees/PROJECT-123-good/$repository_key"
   expected_private_repository="$coordinate_repository/.repochord/repositories/PROJECT-123-good/$repository_key.git"
   expected_worktree_branch="repochord/PROJECT-123-good/$repository_key"
@@ -80,6 +83,16 @@ for repository_key in api web; do
   test "$(git -C "$expected_worktree" symbolic-ref --short HEAD)" = "$expected_worktree_branch"
   test "$(git -C "$expected_worktree" rev-parse HEAD)" = "$(jq -r '.commit' "$result_path")"
   test "$(git -C "$expected_worktree" log -1 --format=%s)" = "test: fake repository agent PROJECT-123-good"
+  test "$(git -C "$expected_worktree" log -1 --format='%an <%ae>')" = \
+    "$expected_user_name <$expected_user_email>"
+  test "$(git -C "$expected_worktree" log -1 --format='%cn <%ce>')" = \
+    "$expected_user_name <$expected_user_email>"
+  if git --git-dir="$expected_private_repository" config --local --get user.name >/dev/null || \
+    git --git-dir="$expected_private_repository" config --local --get user.email >/dev/null
+  then
+    echo "RepoChord wrote identity settings into its private repository." >&2
+    exit 1
+  fi
   jq -e 'has("commit_message") | not' "$result_path" >/dev/null
 
   jq -e \

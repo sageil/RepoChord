@@ -42,6 +42,9 @@ export HOME="$test_home"
 export XDG_CONFIG_HOME="$test_home/.config"
 unset XDG_BIN_HOME XDG_DATA_HOME REPOCHORD_CONFIG_HOME REPOCHORD_DATA_HOME
 
+git config --global user.name "Global Integration Test"
+git config --global user.email "global-integration-test@example.com"
+
 HOME="$test_home" \
 "$repository_directory/install.sh" \
   --bin-dir "$command_bin" \
@@ -62,7 +65,6 @@ printf 'initial coordination state\n' > "$coordinate_repository/README.md"
 printf 'preserve this staged change\n' > "$coordinate_repository/notes.txt"
 git -C "$coordinate_repository" add .
 git -C "$coordinate_repository" commit -m "test: initialize coordination repository" >/dev/null
-git -C "$coordinate_repository" config --unset user.email
 printf 'staged but unrelated\n' >> "$coordinate_repository/notes.txt"
 git -C "$coordinate_repository" add notes.txt
 
@@ -178,8 +180,8 @@ dry_run_output="$(
     --dry-run
 )"
 
-if git -C "$coordinate_repository" config user.email >/dev/null; then
-  echo "Integration test unexpectedly has a configured coordination repository email." >&2
+if ! git -C "$coordinate_repository" config --local user.email >/dev/null; then
+  echo "Integration test does not have the conflicting local coordination identity." >&2
   exit 1
 fi
 
@@ -229,6 +231,30 @@ test "$(git -C "$api_repository" symbolic-ref --short HEAD)" = "user-work"
 test "$(git -C "$api_repository" rev-parse HEAD)" = "$api_base_commit"
 test -d "$coordinate_repository/.repochord/worktrees/$run_id/api"
 test -d "$coordinate_repository/.repochord/worktrees/$run_id/web"
+
+missing_identity_error="$temporary_root/missing-identity-error.txt"
+git config --global --unset-all user.email
+
+if printf 'yes\n' | \
+  HOME="$test_home" \
+  "$command_bin/rchord" integrate \
+    --project integration-test \
+    --run "$run_id" \
+    >/dev/null \
+    2>"$missing_identity_error"
+then
+  echo "Integration unexpectedly created a commit without a configured user email." >&2
+  exit 1
+fi
+
+grep -Fqx \
+  "Global Git user.email is not configured." \
+  "$missing_identity_error"
+test "$(git -C "$coordinate_repository" rev-parse HEAD)" = "$coordinate_base_commit"
+test "$(git -C "$api_repository" rev-parse main)" = "$api_base_commit"
+test "$(git -C "$web_repository" rev-parse master)" = "$web_base_commit"
+
+git config --global user.email "global-integration-test@example.com"
 
 confirmation_fifo="$temporary_root/confirmation.fifo"
 confirmation_output="$temporary_root/confirmation-output.txt"
@@ -328,6 +354,10 @@ diff -u \
 test "$(git -C "$coordinate_repository" status --short notes.txt)" = "M  notes.txt"
 
 integrated_coordinate_commit="$(git -C "$coordinate_repository" rev-parse HEAD)"
+test "$(git -C "$coordinate_repository" log -1 --format='%an <%ae>')" = \
+  "Global Integration Test <global-integration-test@example.com>"
+test "$(git -C "$coordinate_repository" log -1 --format='%cn <%ce>')" = \
+  "Global Integration Test <global-integration-test@example.com>"
 printf 'local work after integration\n' > "$web_repository/local-work.txt"
 integrated_dry_run_output="$(
   HOME="$test_home" \

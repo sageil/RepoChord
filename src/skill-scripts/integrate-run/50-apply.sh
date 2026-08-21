@@ -2,13 +2,25 @@
 empty_hooks_directory="$(mktemp -d "${TMPDIR:-/tmp}/repochord-integration-hooks.XXXXXX")"
 
 if [[ "$documents_pending" == true ]]; then
+  if ! global_user_name="$(git config --global --get user.name)" || [[ -z "$global_user_name" ]]; then
+    fail "Global Git user.name is not configured."
+  fi
+
+  if ! global_user_email="$(git config --global --get user.email)" || [[ -z "$global_user_email" ]]; then
+    fail "Global Git user.email is not configured."
+  fi
+
   if ! git -c core.hooksPath="$empty_hooks_directory" \
     -C "$coordinate_root" add -- "${document_relative_paths[@]}"
   then
     fail "Feature documents could not be staged. No product branches were changed."
   fi
 
-  if ! git -c core.hooksPath="$empty_hooks_directory" \
+  if ! GIT_AUTHOR_NAME="$global_user_name" \
+    GIT_AUTHOR_EMAIL="$global_user_email" \
+    GIT_COMMITTER_NAME="$global_user_name" \
+    GIT_COMMITTER_EMAIL="$global_user_email" \
+    git -c core.hooksPath="$empty_hooks_directory" \
     -C "$coordinate_root" commit \
     --quiet \
     --only \
