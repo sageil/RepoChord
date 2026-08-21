@@ -20,17 +20,51 @@ It works out what each repository needs, sends each task to an isolated reposito
 You need:
 
 - Bash 5.2 or later.
+- `curl` to download the release files.
 - Git.
 - `jq`.
 - Codex CLI 0.147.0 or later.
 
 Each product repository must be a Git repository with at least one commit.
 
-### Default installation
+### Install from a GitHub release
 
-Clone this repository `git clone https://github.com/sageil/RepoChord.git`, switch directories, then run:
+You do not need to clone the source repository.
+Open the [latest RepoChord release](https://github.com/sageil/RepoChord/releases/latest) and note its version number.
+The commands below use version `0.1.0`.
+Change `REPOCHORD_VERSION` when you install another version.
+
+Download the release archive and its checksum file:
 
 ```bash
+REPOCHORD_VERSION=0.1.0
+
+curl -fLO "https://github.com/sageil/RepoChord/releases/download/v${REPOCHORD_VERSION}/repochord-${REPOCHORD_VERSION}.tar.gz"
+curl -fLO "https://github.com/sageil/RepoChord/releases/download/v${REPOCHORD_VERSION}/repochord-${REPOCHORD_VERSION}.tar.gz.sha256"
+```
+
+You can verify the archive before you extract it.
+
+On Linux, run:
+
+```bash
+sha256sum --check "repochord-${REPOCHORD_VERSION}.tar.gz.sha256"
+```
+
+On macOS, run:
+
+```bash
+shasum -a 256 --check "repochord-${REPOCHORD_VERSION}.tar.gz.sha256"
+```
+
+A valid archive reports `repochord-0.1.0.tar.gz: OK`.
+Do not install the archive if the checksum check fails.
+
+Extract the archive, enter its directory, and run the installer:
+
+```bash
+tar -xzf "repochord-${REPOCHORD_VERSION}.tar.gz"
+cd "repochord-${REPOCHORD_VERSION}"
 ./install.sh
 ```
 
@@ -94,9 +128,10 @@ source <(rchord completion zsh)
 Open a new shell to load the completion script.
 To enable it now, run `source ~/.bashrc` or `source ~/.zshrc`.
 
-### Upgrade installed cli & projects
+### Upgrade the installed CLI and projects
 
-Update an installed RepoChord command and shared skills from the current clone:
+Download and verify the latest release with the steps above.
+Then run the upgrade from the extracted release directory:
 
 ```bash
 ./install.sh --upgrade
@@ -112,7 +147,7 @@ RepoChord replaces its managed skill files in each project and keeps the project
 
 ### Uninstall RepoChord
 
-Run the uninstall script from the cloned RepoChord repository:
+Run the uninstall script from an extracted RepoChord release directory:
 
 ```bash
 ./uninstall.sh
