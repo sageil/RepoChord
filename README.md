@@ -205,93 +205,103 @@ rchord --project acme-commerce
 
 ## Follow a feature from request to integration
 
-These captures show a real delivery-instructions feature as it moves through RepoChord.
-The workflow begins with one short request and ends with the finished changes on the local API and storefront branches.
+These captures follow a real invite-a-friend feature from one short request to finished changes on the local API and storefront branches.
+The example adds an in-memory referral invitation API and a storefront form that shows a share link after registration.
 
 ### 1. Ask for the desired outcome
 
-Begin your prompt with `$repochord`, then describe what the customer should be able to do:
+Begin your prompt with `$repochord`, then describe the result you want:
 
 ```text
-$repochord Add editable delivery instructions to orders. Customers can save, replace, or clear a delivery note of up to 200 characters from the order page. If saving fails, keep the last saved note and allow another attempt. Preserve all existing order features.
+$repochord Create an invite-a-friend feature.
 ```
 
-Codex finds the participating repositories and reads the relevant code before it prepares the work.
+RepoChord finds the registered API and storefront repositories, then Codex reads the current registration flow in both repositories.
+Here, Codex also makes the limits clear: the first version creates a shareable invitation, but it does not send email, grant rewards, or add a redemption flow.
 
-![Request editable delivery instructions and inspect the participating repositories](assets/workflow-screen-captures/request-delivery-instructions.png)
+![Ask RepoChord to create an invite-a-friend feature](assets/workflow-screen-captures/request-invite-a-friend.png)
 
-### 2. See how the work will be divided
+### 2. Review the proposed work
 
-Codex applies the RepoChord task-authoring skill to create one feature request and one focused assignment for each participating repository.
-The repository tasks describe the API behavior, storefront behavior, checks, and local commit messages before any product code changes.
+Codex creates one feature request and one focused assignment for each repository.
+The tasks spell out the shared API contract, error cases, tests, documentation, and commit messages before any product code changes.
 
-RepoChord validates the task-packet structure before it presents the proposal.
+RepoChord validates the complete task packet before it asks for approval.
 
-![Prepare the API and storefront delivery-instructions assignments](assets/workflow-screen-captures/prepare-delivery-instructions-assignments.png)
+![Create and validate the invite-a-friend task packet](assets/workflow-screen-captures/validate-invite-a-friend-task-packet.png)
 
-Codex then brings both assignments together in one proposal.
-Read it to confirm that the repositories agree on the request shape, saved state, and failure behavior.
+The proposal gives you one place to check how the repositories will work together.
+In this example, it shows the endpoint, request body, success result, expected errors, known limits, verification command, and planned commits.
 
-![Review and approve the delivery-instructions proposal](assets/workflow-screen-captures/review-and-approve-proposal.png)
+![Review the invite-a-friend proposal before approval](assets/workflow-screen-captures/review-invite-a-friend-proposal.png)
 
 ### 3. Let RepoChord run the repository agents
 
-After approval, RepoChord creates an isolated private repository and worktree for each assignment and starts both agents.
-The agents can work at the same time, while the normal API and storefront checkouts stay unchanged.
+Type `approved` when the proposal matches the outcome you want.
+RepoChord then creates an isolated private repository and worktree for each assignment and starts both agents.
 
-![Run the API and storefront repository agents in isolated worktrees](assets/workflow-screen-captures/run-repository-agents.png)
+![Approve the proposal and start the repository agents](assets/workflow-screen-captures/approve-and-start-repository-agents.png)
+
+The API and storefront agents can work at the same time while your normal checkouts stay unchanged.
+Codex keeps the session open and reports whether the run is still healthy while the agents implement and test their changes.
+
+![Monitor the repository agents while they work](assets/workflow-screen-captures/monitor-repository-agents.png)
 
 ### 4. Read the result before you integrate
 
-When both agents finish, RepoChord returns one report for the run.
-The first part shows the API result, including its commit, checks, model, reasoning effort, token usage, and worktree state.
-Each completed repository entry links to a run-specific task view with its Markdown task boxes checked.
-RepoChord keeps the approved repository task unchanged and can recreate the completed view from the run snapshot and validated result.
+When both agents finish, RepoChord returns one report for the complete run.
+The first part shows the overall status and the API result, including its summary, commit, checks, token usage, and worktree state.
 
-![Review the API result in the RepoChord run report](assets/workflow-screen-captures/review-api-run-result.png)
+![Review the completed run and API result](assets/workflow-screen-captures/review-completed-run.png)
 
-The rest of the report shows the storefront result and the exact commands you can run next.
+The rest of the report shows the storefront result and the exact integration commands you can run next.
+Check that each repository is complete and has no blockers before you continue.
 See [Understand token usage](TOKEN-USAGE.md) for more detail about the recorded token counts.
 
-![Review the storefront result and integration commands](assets/workflow-screen-captures/review-storefront-result-and-next-actions.png)
+![Review the storefront result and the next integration commands](assets/workflow-screen-captures/review-web-result-and-next-actions.png)
 
 ### 5. Review the code in your Git diff viewer
 
 Leave Codex open and run the integration command in your terminal.
-Add `--show-diffs` to inspect the repository changes before RepoChord asks for confirmation.
+Add `--show-diffs` to inspect every pending repository change before RepoChord asks for confirmation:
 
-![Start local integration and request the repository diffs](assets/workflow-screen-captures/start-integration-with-diffs.png)
+```bash
+rchord integrate --run invite-a-friend-78rduu-run-AUwB0i --show-diffs
+```
+
+![Start local integration and request the repository diffs](assets/workflow-screen-captures/run-integration-with-diffs.png)
 
 RepoChord uses native `git diff`, so the review opens with your Git pager, colors, and display settings.
-This example uses a side-by-side diff to review the storefront changes.
+This example uses a side-by-side view to inspect the storefront documentation and code.
+When the diff closes, RepoChord asks whether to import the verified commits and fast-forward both repository branches.
 
-![Review the delivery-instructions changes in the configured Git diff viewer](assets/workflow-screen-captures/review-integration-diff.png)
+![Review the changes and confirm local integration](assets/workflow-screen-captures/review-diffs-and-confirm-integration.png)
 
-### 6. Confirm local integration
+### 6. Check the completed integration
 
-After the diff closes, RepoChord asks whether to continue.
-Confirm to import the verified commits, commit the feature documents, and fast-forward the local product branches.
-RepoChord does not push the changes, and it keeps the private repositories and feature worktrees available.
+After you confirm, RepoChord commits the feature documents, imports the verified commits, and fast-forwards the local API and storefront branches.
+The final message confirms which branches changed.
+RepoChord does not push the changes, and it keeps the feature worktrees for later review or cleanup.
 
-![Confirm integration and update the local API and storefront branches](assets/workflow-screen-captures/confirm-local-integration.png)
+![Complete integration on the local API and storefront branches](assets/workflow-screen-captures/complete-local-integration.png)
 
 ## What RepoChord creates for a feature
 
-As Codex prepares the proposal, it gives the feature a stable ID, such as `editable-delivery-instructions-on-orders-grfhdd`.
+As Codex prepares the proposal, it gives the feature a stable ID, such as `invite-a-friend-78rduu`.
 It also writes one request file and one task for each repository:
 
 ```text
-requests/editable-delivery-instructions-on-orders-grfhdd.md
-tasks/editable-delivery-instructions-on-orders-grfhdd/api.md
-tasks/editable-delivery-instructions-on-orders-grfhdd/web.md
-tasks/editable-delivery-instructions-on-orders-grfhdd/assignments.txt
+requests/invite-a-friend-78rduu.md
+tasks/invite-a-friend-78rduu/api.md
+tasks/invite-a-friend-78rduu/web.md
+tasks/invite-a-friend-78rduu/assignments.txt
 ```
 
 The request file describes the feature as a whole.
 Each repository task explains what that repository must change and how its agent must verify the result.
 The assignments file connects those tasks to the registered repositories.
 
-When implementation starts, RepoChord creates a separate run ID, such as `editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi`.
+When implementation starts, RepoChord creates a separate run ID, such as `invite-a-friend-78rduu-run-AUwB0i`.
 It records the current state of each product repository and gives each repository agent its own private repository, branch, and worktree:
 
 ```text
@@ -309,7 +319,7 @@ Run a dry run first to see what RepoChord will change:
 ```bash
 rchord integrate \
   --project acme-commerce \
-  --run editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi \
+  --run invite-a-friend-78rduu-run-AUwB0i \
   --dry-run
 ```
 
@@ -318,7 +328,7 @@ Add `--show-diffs` when you want to review the complete pending Git diff for eac
 ```bash
 rchord integrate \
   --project acme-commerce \
-  --run editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi \
+  --run invite-a-friend-78rduu-run-AUwB0i \
   --dry-run \
   --show-diffs
 ```
@@ -330,7 +340,7 @@ If the plan looks correct, run the integration command without `--dry-run`:
 ```bash
 rchord integrate \
   --project acme-commerce \
-  --run editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi
+  --run invite-a-friend-78rduu-run-AUwB0i
 ```
 
 RepoChord asks for confirmation before it writes to the product repositories.
@@ -460,7 +470,7 @@ After the run uses all configured attempts, increase the limit and resume the sa
 ```bash
 rchord resume \
   --project acme-commerce \
-  --run editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi \
+  --run invite-a-friend-78rduu-run-AUwB0i \
   --max-attempts 5
 ```
 
@@ -471,7 +481,7 @@ Retry one blocked repository with:
 ```bash
 rchord resume \
   --project acme-commerce \
-  --run editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi \
+  --run invite-a-friend-78rduu-run-AUwB0i \
   --retry-blocked api
 ```
 
@@ -497,7 +507,7 @@ After review or integration, remove worktree checkouts that you no longer need o
 ```bash
 rchord cleanup \
   --project acme-commerce \
-  --run editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi \
+  --run invite-a-friend-78rduu-run-AUwB0i \
   --repository api \
   --repository web
 ```
@@ -508,7 +518,7 @@ Use `--force` only when you have reviewed the uncommitted work and explicitly wa
 ```bash
 rchord cleanup \
   --project acme-commerce \
-  --run editable-delivery-instructions-on-orders-grfhdd-run-kQmgdi \
+  --run invite-a-friend-78rduu-run-AUwB0i \
   --repository api \
   --force
 ```
@@ -540,7 +550,7 @@ Scaffold a new feature to reserve its feature ID and create its assignments meta
 
 ```bash
 bash /work/acme-commerce-coordinate/.agents/skills/repochord/scripts/scaffold-feature.sh \
-  --title "Editable delivery instructions on orders" \
+  --title "Invite a friend" \
   api \
   web
 ```
@@ -551,7 +561,7 @@ Write the completed request and repository task files once, then validate them:
 
 ```bash
 bash /work/acme-commerce-coordinate/.agents/skills/repochord/scripts/validate-task-packet.sh \
-  /work/acme-commerce-coordinate/tasks/editable-delivery-instructions-on-orders-grfhdd/assignments.txt
+  /work/acme-commerce-coordinate/tasks/invite-a-friend-78rduu/assignments.txt
 ```
 
 Start repository agents and generate the run ID:
@@ -559,7 +569,7 @@ Start repository agents and generate the run ID:
 ```bash
 bash /work/acme-commerce-coordinate/.agents/skills/repochord/scripts/run-repository-agents.sh \
   --reasoning-effort medium \
-  /work/acme-commerce-coordinate/tasks/editable-delivery-instructions-on-orders-grfhdd/assignments.txt
+  /work/acme-commerce-coordinate/tasks/invite-a-friend-78rduu/assignments.txt
 ```
 
 Pass an explicit run ID before the assignments file only when another system requires that exact ID.
