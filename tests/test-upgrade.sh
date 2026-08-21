@@ -28,11 +28,12 @@ initialize_repository() {
 
 test_home="$temporary_root/home"
 command_bin="$temporary_root/commands"
+fake_codex_bin="$temporary_root/fake-codex-bin"
 first_product="$temporary_root/first-product"
 second_product="$temporary_root/second-product"
 first_coordinate="$temporary_root/first-coordinate"
 second_coordinate="$temporary_root/second-coordinate"
-mkdir -p "$test_home"
+mkdir -p "$test_home" "$fake_codex_bin"
 
 export HOME="$test_home"
 export XDG_CONFIG_HOME="$test_home/.config"
@@ -80,8 +81,12 @@ second_head_before="$(git -C "$second_product" rev-parse HEAD)"
 rm -f -- "$first_coordinate/.agents/skills/repochord/scripts/report-run.sh"
 printf 'obsolete\n' > "$first_coordinate/.agents/skills/repochord/obsolete.txt"
 printf '\nstale project copy\n' >> "$second_coordinate/.agents/skills/repochord/SKILL.md"
+cp "$test_directory/fixtures/fake-codex-start.sh" "$fake_codex_bin/codex"
+chmod +x "$fake_codex_bin/codex"
 
-if HOME="$test_home" "$rchord_command" validate --project first >"$temporary_root/validate.out" 2>&1; then
+if HOME="$test_home" PATH="$fake_codex_bin:$PATH" \
+  "$rchord_command" validate --project first >"$temporary_root/validate.out" 2>&1
+then
   echo "RepoChord unexpectedly validated a stale project skill." >&2
   exit 1
 fi

@@ -25,8 +25,10 @@ diff -u \
 
 captured_broker_directory="$(sed -n 's/^broker_directory=//p' "$settings_capture")"
 captured_tmpdir="$(sed -n 's/^tmpdir=//p' "$settings_capture")"
-[[ "$captured_broker_directory" == /private/*/repochord-broker.* ]]
-[[ "$captured_tmpdir" == /private/*/repochord-coordinator.* ]]
+[[ "$captured_broker_directory" == /* ]]
+[[ "${captured_broker_directory##*/}" == repochord-broker.* ]]
+[[ "$captured_tmpdir" == /* ]]
+[[ "${captured_tmpdir##*/}" == repochord-coordinator.* ]]
 test ! -e "$captured_broker_directory"
 test ! -e "$captured_tmpdir"
 
