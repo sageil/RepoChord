@@ -5,6 +5,10 @@ if [[ "$#" -gt 0 ]]; then
       usage
       exit 0
       ;;
+    -V|--version|version)
+      printf 'RepoChord %s\n' "$REPOCHORD_VERSION"
+      exit 0
+      ;;
   esac
 fi
 

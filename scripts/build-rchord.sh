@@ -27,6 +27,16 @@ script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repository_directory="$(cd -- "$script_directory/.." && pwd -P)"
 source_directory="$repository_directory/src/rchord"
 output_path="$repository_directory/payload/rchord"
+version_path="$repository_directory/VERSION"
+
+mapfile -t version_lines < "$version_path"
+
+if [[ "${#version_lines[@]}" -ne 1 || ! "${version_lines[0]}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  echo "VERSION must contain one stable semantic version in X.Y.Z format." >&2
+  exit 2
+fi
+
+repochord_version="${version_lines[0]}"
 output_stage="$(mktemp "${TMPDIR:-/tmp}/repochord-command.XXXXXX")"
 
 cleanup() {
@@ -55,7 +65,12 @@ source_files=(
 : > "$output_stage"
 
 for ((source_index = 0; source_index < ${#source_files[@]}; source_index++)); do
-  awk '1' "${source_files[$source_index]}" >> "$output_stage"
+  if [[ "${source_files[$source_index]}" == "$source_directory/base.sh" ]]; then
+    awk -v version="$repochord_version" '{gsub(/@REPOCHORD_VERSION@/, version); print}' \
+      "${source_files[$source_index]}" >> "$output_stage"
+  else
+    awk '1' "${source_files[$source_index]}" >> "$output_stage"
+  fi
 
   if ((source_index + 1 < ${#source_files[@]})); then
     printf '\n' >> "$output_stage"

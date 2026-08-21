@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing version tag to release, such as v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Verify and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.release_tag }}
+
+      - name: Verify the tag and version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if ! git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            echo "Release tag does not exist: $RELEASE_TAG" >&2
+            exit 1
+          fi
+
+          version="$(<VERSION)"
+
+          if [[ "$RELEASE_TAG" != "v$version" ]]; then
+            echo "Release tag $RELEASE_TAG does not match VERSION $version." >&2
+            exit 1
+          fi
+
+      - name: Run project checks
+        shell: bash
+        run: bash tests/run.sh
+
+      - name: Build release assets
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: ./scripts/package-release.sh --tag "$RELEASE_TAG" --output dist
+
+      - name: Create or resume the GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          release_state=""
+
+          if release_state="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' 2>/dev/null)"; then
+            if [[ "$release_state" == "false" ]]; then
+              echo "Release $RELEASE_TAG is already published. No files were changed."
+              exit 0
+            fi
+
+            gh release upload "$RELEASE_TAG" dist/* --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              dist/* \
+              --draft \
+              --generate-notes \
+              --title "RepoChord ${RELEASE_TAG#v}" \
+              --verify-tag
+          fi
+
+          gh release edit "$RELEASE_TAG" --draft=false

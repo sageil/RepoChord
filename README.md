@@ -48,6 +48,8 @@ Unless you change them, RepoChord installs with these settings:
 | Shared task-authoring skill | `~/.local/share/repochord/task-skill` |
 | Project registry | `~/.config/repochord/projects.json` |
 
+Check the installed version with `rchord --version`.
+
 You can use `minimal`, `low`, `medium`, `high`, or `xhigh`.
 The selected model must support the effort you choose.
 
@@ -542,50 +544,14 @@ rchord cleanup \
   --force
 ```
 
-## Troubleshooting & diagnostics
+## Troubleshooting and diagnostics
 
-The coordinator normally runs these scripts for you. Use them directly only for diagnosis or external automation.
-
-Scaffold a new feature to reserve its feature ID and create its assignments metadata:
-
-```bash
-bash /work/acme-commerce-coordinate/.agents/skills/repochord/scripts/scaffold-feature.sh \
-  --title "Invite a friend" \
-  api \
-  web
-```
-
-The script prints the target request-file path followed by the assignments-file path.
-It does not create placeholder specification files.
-Write the completed request and repository task files once, then validate them:
-
-```bash
-bash /work/acme-commerce-coordinate/.agents/skills/repochord/scripts/validate-task-packet.sh \
-  /work/acme-commerce-coordinate/tasks/invite-a-friend-78rduu/assignments.txt
-```
-
-Start repository agents and generate the run ID:
-
-```bash
-bash /work/acme-commerce-coordinate/.agents/skills/repochord/scripts/run-repository-agents.sh \
-  --reasoning-effort medium \
-  /work/acme-commerce-coordinate/tasks/invite-a-friend-78rduu/assignments.txt
-```
-
-Pass an explicit run ID before the assignments file only when another system requires that exact ID.
+Use the [troubleshooting and diagnostics guide](docs/troubleshooting.md) for direct task-packet and repository-agent commands.
 
 ## Development
 
-Large Bash programs are assembled from smaller source files under `src/`.
-Do not edit generated Bash files directly.
+Use the [development and releases guide](docs/development.md) for generated files, verification, versioning, and manual releases.
 
-Generate all checked-in Bash artifacts after a source change:
+## License
 
-```bash
-./scripts/build-installer.sh
-./scripts/build-rchord.sh
-./scripts/build-skill-scripts.sh
-./scripts/build-test-scripts.sh
-```
-
-Run `bash tests/run.sh` to check generated-file consistency, behavior, Bash syntax, ShellCheck, skill structure, and the Git diff.
+RepoChord is available under the [MIT License](LICENSE).

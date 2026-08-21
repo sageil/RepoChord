@@ -4,6 +4,8 @@
 
 set -euo pipefail
 
+readonly REPOCHORD_VERSION="@REPOCHORD_VERSION@"
+
 if ((BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 2))); then
   echo "RepoChord requires Bash 5.2 or later." >&2
   exit 2
@@ -24,6 +26,7 @@ Usage:
   rchord resume [-p <name>] --run <run-id> [--retry-blocked <key>]... [--max-attempts <count>]
   rchord cleanup [-p <name>] (--run <run-id> | --all) [-r <key>]... [--force]
   rchord completion <bash|zsh>
+  rchord --version
 EOF
 }
 
